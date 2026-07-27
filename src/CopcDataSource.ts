@@ -1,16 +1,7 @@
 import type { Viewer } from 'cesium';
+import type { CopcDataSourceOptions } from './types';
 
-export interface CopcDataSourceOptions {
-  proj?: string;
-  projDef?: string | null;
-  geoidOffset?: number;
-  concurrency?: number;
-  debounceMs?: number;
-  maxCacheNodes?: number;
-  maxVisibleNodes?: number;
-  pixelSize?: number;
-  sseThreshold?: number;
-}
+export type { CopcDataSourceOptions };
 
 export class CopcDataSource {
   static async load(
