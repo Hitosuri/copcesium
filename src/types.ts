@@ -22,3 +22,23 @@ export interface CrsDetectionResult {
   /** XY축 단위를 미터로 변환하는 계수 */
   xyFactor: number;
 }
+
+/** 노드의 로컬 공간(오프셋 미적용) 경계 — 팀원 B의 lod/boundingVolume.ts가 계산해 소비한다 */
+export interface NodeBounds {
+  center: [number, number, number];
+  halfSize: number;
+}
+
+/** Worker가 메인 스레드로 돌려주는 렌더링용 TypedArray 버퍼 */
+export interface NodeRenderData {
+  positions: Float64Array;
+  colors: Uint8Array;
+  pointCount: number;
+}
+
+/** Cesium Primitive로 만들어진, Scene에 추가 가능한 노드 */
+export interface LoadedNode {
+  key: string;
+  primitive: unknown;
+  pointCount: number;
+}
