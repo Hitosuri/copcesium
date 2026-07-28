@@ -63,6 +63,6 @@ export class CopcDataSource {
   }
 
   destroy(): void {
-    // Day 3에서 Worker/캐시/씬 리소스가 추가되면 여기서 정리한다.
+    // Clean up Worker/cache/scene resources here once they're added in Day 3.
   }
 }

@@ -42,7 +42,7 @@ describe('loadCopcHierarchy', () => {
     create.mockRejectedValueOnce(new Error('Invalid header: too short'));
 
     await expect(loadCopcHierarchy('https://example.com/broken.copc.laz')).rejects.toThrow(
-      /COPC 헤더를 읽을 수 없습니다/,
+      /Failed to read the COPC header/,
     );
   });
 

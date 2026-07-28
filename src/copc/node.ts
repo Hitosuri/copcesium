@@ -1,10 +1,10 @@
-/** COPC 계층 노드 키(VoxelKey, "D-X-Y-Z")에서 깊이(D)를 추출합니다. */
+/** Extracts the depth (D) from a COPC hierarchy node key (VoxelKey, "D-X-Y-Z"). */
 export function getDepth(key: string): number {
   return parseInt(key.split('-')[0]);
 }
 
 /**
- * 노드 키의 8개 자식 키를 반환합니다.
+ * Returns the 8 child keys of a node key.
  * D-X-Y-Z → (D+1)-(2X+dx)-(2Y+dy)-(2Z+dz), dx/dy/dz ∈ {0,1}
  */
 export function getChildKeys(key: string): string[] {

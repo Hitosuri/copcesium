@@ -40,8 +40,8 @@ describe('detectCrs', () => {
   });
 
   it('falls back to the local EPSG table when the WKT cannot be parsed directly (meter units)', () => {
-    // 유효하지 않은 WKT 문법(GARBAGE 토큰)이라 proj4 직접 파싱은 실패하고,
-    // ID[...]로 로컬 테이블(EPSG:5186, meter 단위) 조회로 대체된다.
+    // The GARBAGE token makes this invalid WKT syntax, so direct proj4 parsing
+    // fails and it falls back to a local table lookup via ID[...] (EPSG:5186, meter unit).
     const wkt = 'PROJCS["Korea 2000 / Central Belt 2010", GARBAGE, ID["EPSG",5186]], UNIT["metre",1]';
 
     const result = detectCrs(wkt, SAMPLE_URL);
@@ -75,7 +75,7 @@ describe('detectCrs', () => {
     const result = detectCrs(wkt, SAMPLE_URL);
 
     expect(result).not.toBeNull();
-    // 5186(수평 CRS)이 선택되어야 하며, 5703(수직 CRS) 정의가 아니어야 한다.
+    // 5186 (horizontal CRS) should be selected, not the 5703 (vertical CRS) definition.
     expect(result!.projDef).toBe(
       '+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs',
     );

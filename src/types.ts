@@ -1,4 +1,4 @@
-/** CopcDataSource 공개 옵션 */
+/** Public options for CopcDataSource */
 export interface CopcDataSourceOptions {
   proj?: string;
   projDef?: string | null;
@@ -11,32 +11,32 @@ export interface CopcDataSourceOptions {
   sseThreshold?: number;
 }
 
-/** WKT VLR에서 CRS를 자동 감지한 결과 */
+/** Result of auto-detecting a CRS from a WKT VLR */
 export interface CrsDetectionResult {
-  /** proj4에 등록된 좌표계 이름 (EPSG:xxxx 또는 CRS:<url 기반 식별자>) */
+  /** CRS name registered with proj4 (EPSG:xxxx or CRS:<url-based identifier>) */
   proj: string;
-  /** proj4.defs에 등록한 원본 정의 문자열 (지리좌표계인 경우 null) */
+  /** Original definition string registered via proj4.defs (null for a geographic CRS) */
   projDef: string | null;
-  /** Z축 단위를 미터로 변환하는 계수 */
+  /** Factor that converts the Z axis unit to meters */
   zFactor: number;
-  /** XY축 단위를 미터로 변환하는 계수 */
+  /** Factor that converts the XY axis unit to meters */
   xyFactor: number;
 }
 
-/** 노드의 로컬 공간(오프셋 미적용) 경계 — 팀원 B의 lod/boundingVolume.ts가 계산해 소비한다 */
+/** A node's local-space (offset not applied) bounds — computed and consumed by teammate B's lod/boundingVolume.ts */
 export interface NodeBounds {
   center: [number, number, number];
   halfSize: number;
 }
 
-/** Worker가 메인 스레드로 돌려주는 렌더링용 TypedArray 버퍼 */
+/** Rendering-ready TypedArray buffers the Worker hands back to the main thread */
 export interface NodeRenderData {
   positions: Float64Array;
   colors: Uint8Array;
   pointCount: number;
 }
 
-/** Cesium Primitive로 만들어진, Scene에 추가 가능한 노드 */
+/** A node built into a Cesium Primitive, ready to be added to the Scene */
 export interface LoadedNode {
   key: string;
   primitive: unknown;

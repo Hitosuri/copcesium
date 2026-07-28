@@ -1,9 +1,9 @@
 /**
- * 로컬 EPSG → proj4 정의 테이블
- * epsg.io 네트워크 요청 없이 오프라인에서 좌표 변환을 지원합니다.
+ * Local EPSG -> proj4 definition table.
+ * Supports offline coordinate conversion without epsg.io network requests.
  */
 const EPSG_TABLE: Record<number, string> = {
-  // ── 지리좌표계 ──────────────────────────────────────────────────────────────
+  // ── Geographic CRS ──────────────────────────────────────────────────────────
   4326: '+proj=longlat +datum=WGS84 +no_defs',
   4269: '+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs',
   4617: '+proj=longlat +ellps=GRS80 +no_defs',
@@ -12,7 +12,7 @@ const EPSG_TABLE: Record<number, string> = {
   // ── Web Mercator ────────────────────────────────────────────────────────────
   3857: '+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs',
 
-  // ── 한국 좌표계 ─────────────────────────────────────────────────────────────
+  // ── Korean CRS ──────────────────────────────────────────────────────────────
   // Korea 2000 / Unified CS
   5179: '+proj=tmerc +lat_0=38 +lon_0=127.5 +k=0.9996 +x_0=1000000 +y_0=2000000 +ellps=GRS80 +units=m +no_defs',
   // Korea 2000 / West Belt 2010
@@ -32,7 +32,7 @@ const EPSG_TABLE: Record<number, string> = {
   // Korea 1985 / East Sea Belt (Bessel)
   5177: '+proj=tmerc +lat_0=38 +lon_0=131.0028902777778 +k=1 +x_0=200000 +y_0=500000 +ellps=bessel +units=m +no_defs +towgs84=-115.80,474.99,674.11,1.16,-2.31,-1.63,6.43',
 
-  // ── 미국 State Plane NAD83 (단위: us-ft) ────────────────────────────────────
+  // ── US State Plane NAD83 (units: us-ft) ─────────────────────────────────────
   // California
   2226: '+proj=lcc +lat_1=40.33333333333334 +lat_2=41.66666666666666 +lat_0=39.33333333333334 +lon_0=-122 +x_0=2000000.0001016 +y_0=500000.0001016001 +datum=NAD83 +units=us-ft +no_defs',
   2227: '+proj=lcc +lat_1=37.06666666666667 +lat_2=38.43333333333333 +lat_0=36.5 +lon_0=-120.5 +x_0=2000000.0001016 +y_0=500000.0001016001 +datum=NAD83 +units=us-ft +no_defs',
@@ -92,7 +92,7 @@ const EPSG_TABLE: Record<number, string> = {
   26922: '+proj=utm +zone=22 +ellps=GRS80 +datum=NAD83 +units=m +no_defs',
   26923: '+proj=utm +zone=23 +ellps=GRS80 +datum=NAD83 +units=m +no_defs',
 
-  // ── 미국 State Plane NAD83 (단위: m) ────────────────────────────────────────
+  // ── US State Plane NAD83 (units: m) ─────────────────────────────────────────
   // Alaska
   26931: '+proj=tmerc +lat_0=57 +lon_0=-133 +k=0.9999 +x_0=500000 +y_0=0 +datum=NAD83 +units=m +no_defs',
   26932: '+proj=tmerc +lat_0=54 +lon_0=-142 +k=0.9999 +x_0=500000 +y_0=0 +datum=NAD83 +units=m +no_defs',
@@ -226,7 +226,7 @@ const EPSG_TABLE: Record<number, string> = {
   32160: '+proj=tmerc +lat_0=40.5 +lon_0=-108.75 +k=0.9999375 +x_0=600000 +y_0=0 +datum=NAD83 +units=m +no_defs',
   32161: '+proj=tmerc +lat_0=40.5 +lon_0=-110.0833333333333 +k=0.9999375 +x_0=800000 +y_0=100000 +datum=NAD83 +units=m +no_defs',
 
-  // ── 유럽 좌표계 ─────────────────────────────────────────────────────────────
+  // ── European CRS ────────────────────────────────────────────────────────────
   // British National Grid (OSGB36)
   27700: '+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs',
   // Netherlands RD New
@@ -255,12 +255,12 @@ const EPSG_TABLE: Record<number, string> = {
   // Spain / ETRS89 UTM zone 30N
   25830: '+proj=utm +zone=30 +ellps=GRS80 +units=m +no_defs',
 
-  // ── 일본 좌표계 ─────────────────────────────────────────────────────────────
+  // ── Japanese CRS ────────────────────────────────────────────────────────────
   // JGD2000 (EPSG:4612) - geographic
   4612: '+proj=longlat +ellps=GRS80 +no_defs',
   // JGD2011 (EPSG:6668) - geographic
   6668: '+proj=longlat +ellps=GRS80 +no_defs',
-  // JGD2011 평면직각 좌표계 I~XIX (6669–6687)
+  // JGD2011 plane rectangular CRS I~XIX (6669-6687)
   6669: '+proj=tmerc +lat_0=33 +lon_0=129.5 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs',
   6670: '+proj=tmerc +lat_0=33 +lon_0=131 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs',
   6671: '+proj=tmerc +lat_0=36 +lon_0=132.1666666666667 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs',
@@ -291,7 +291,7 @@ const EPSG_TABLE: Record<number, string> = {
   6695: '+proj=utm +zone=58 +ellps=GRS80 +units=m +no_defs',
   6696: '+proj=utm +zone=59 +ellps=GRS80 +units=m +no_defs',
 
-  // ── 호주 좌표계 ─────────────────────────────────────────────────────────────
+  // ── Australian CRS ──────────────────────────────────────────────────────────
   // GDA94 geographic
   4283: '+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs',
   // GDA94 / MGA zone 48–58 (28348–28358)
@@ -329,11 +329,11 @@ for (let z = 1; z <= 60; z++) {
 for (let z = 1; z <= 60; z++) {
   EPSG_TABLE[32700 + z] = `+proj=utm +zone=${z} +south +datum=WGS84 +units=m +no_defs`;
 }
-// ETRS89 UTM North (EPSG:25828–25838, 유럽 zone 28–38)
+// ETRS89 UTM North (EPSG:25828-25838, European zones 28-38)
 for (let z = 28; z <= 38; z++) {
   EPSG_TABLE[25800 + z] = `+proj=utm +zone=${z} +ellps=GRS80 +units=m +no_defs`;
 }
-// NAD83 UTM North (EPSG:26901–26923, 북미 커버 구역만)
+// NAD83 UTM North (EPSG:26901-26923, North America coverage zones only)
 for (let z = 1; z <= 23; z++) {
   if (!EPSG_TABLE[26900 + z]) {
     EPSG_TABLE[26900 + z] = `+proj=utm +zone=${z} +ellps=GRS80 +datum=NAD83 +units=m +no_defs`;
@@ -341,8 +341,8 @@ for (let z = 1; z <= 23; z++) {
 }
 
 /**
- * EPSG 코드로 로컬 테이블에서 proj4 정의 문자열을 조회합니다.
- * @param code  EPSG 코드 (숫자 또는 문자열)
+ * Looks up a proj4 definition string from the local table by EPSG code.
+ * @param code  EPSG code (number or string)
  */
 export function lookupEpsg(code: string | number): string | null {
   return EPSG_TABLE[parseInt(String(code), 10)] ?? null;

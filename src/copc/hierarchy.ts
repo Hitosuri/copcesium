@@ -11,8 +11,8 @@ export interface CopcHierarchy {
 }
 
 /**
- * COPC 파일의 헤더/VLR 메타데이터와 루트 계층 페이지를 읽어 전체 노드 Map,
- * 최대 깊이, 루트 큐브(중심/반경)를 반환합니다.
+ * Reads a COPC file's header/VLR metadata and its root hierarchy page, and
+ * returns the full node map, the max depth, and the root cube (center/half size).
  */
 export async function loadCopcHierarchy(url: string): Promise<CopcHierarchy> {
   let copc: Copc;
@@ -22,7 +22,7 @@ export async function loadCopcHierarchy(url: string): Promise<CopcHierarchy> {
     const e = err as Error;
     if (/must be at least|Invalid header|COPC info VLR/i.test(e.message)) {
       throw new Error(
-        `COPC 헤더를 읽을 수 없습니다. URL이 올바른지 또는 CORS 접근이 허용된지 확인하세요.\n원인: ${e.message}`,
+        `Failed to read the COPC header. Check that the URL is correct and that CORS access is allowed.\nCause: ${e.message}`,
         { cause: err },
       );
     }
