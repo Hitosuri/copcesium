@@ -17,6 +17,8 @@ const DEFAULT_OPTIONS: Required<CopcDataSourceOptions> = {
   maxVisibleNodes: 100,
   pixelSize: 2,
   sseThreshold: 250,
+  zFactor: 1,
+  xyFactor: 1,
 };
 
 export class CopcDataSource {
@@ -53,6 +55,11 @@ export class CopcDataSource {
       if (detected) {
         resolved.proj = detected.proj;
         resolved.projDef = detected.projDef;
+        // Detection only fills in a factor the user did not explicitly set —
+        // check the raw `options` argument, not `resolved`, since `resolved`
+        // already carries the (indistinguishable) default of 1.
+        if (options.zFactor === undefined) resolved.zFactor = detected.zFactor;
+        if (options.xyFactor === undefined) resolved.xyFactor = detected.xyFactor;
       }
     }
     if (resolved.projDef && resolved.proj !== 'EPSG:4326') {
