@@ -9,6 +9,10 @@ export interface CopcDataSourceOptions {
   maxVisibleNodes?: number;
   pixelSize?: number;
   sseThreshold?: number;
+  /** Factor that converts the Z axis unit to meters. Auto-detected from the WKT when omitted. */
+  zFactor?: number;
+  /** Factor that converts the XY axis unit to meters. Auto-detected from the WKT when omitted. */
+  xyFactor?: number;
 }
 
 /** Result of auto-detecting a CRS from a WKT VLR */

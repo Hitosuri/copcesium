@@ -62,4 +62,43 @@ describe('CopcDataSource.load', () => {
     const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer);
     expect(() => ds.destroy()).not.toThrow();
   });
+
+  it('applies zFactor/xyFactor auto-detected from a non-meter WKT', async () => {
+    const wkt =
+      'PROJCS["NAD83 / California zone 5", GARBAGE, ID["EPSG",2229]], ' +
+      'LENGTHUNIT["US survey foot",0.304800609601219]';
+    mockCopc(wkt);
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer);
+
+    const opts = (ds as unknown as { _options: { zFactor: number; xyFactor: number } })._options;
+    expect(opts.zFactor).toBeCloseTo(0.3048006096, 8);
+    expect(opts.xyFactor).toBeCloseTo(0.3048006096, 8);
+  });
+
+  it('lets explicit zFactor/xyFactor options take priority over auto-detection', async () => {
+    const wkt =
+      'PROJCS["NAD83 / California zone 5", GARBAGE, ID["EPSG",2229]], ' +
+      'LENGTHUNIT["US survey foot",0.304800609601219]';
+    mockCopc(wkt);
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer, {
+      zFactor: 1,
+      xyFactor: 1,
+    });
+
+    const opts = (ds as unknown as { _options: { zFactor: number; xyFactor: number } })._options;
+    expect(opts.zFactor).toBe(1);
+    expect(opts.xyFactor).toBe(1);
+  });
+
+  it('defaults zFactor/xyFactor to 1 when there is no WKT to detect from', async () => {
+    mockCopc(undefined);
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer);
+
+    const opts = (ds as unknown as { _options: { zFactor: number; xyFactor: number } })._options;
+    expect(opts.zFactor).toBe(1);
+    expect(opts.xyFactor).toBe(1);
+  });
 });
