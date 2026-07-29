@@ -38,6 +38,13 @@ export class NodeCache {
       this.onEvict(key, node);
       return;
     }
+    // Overwriting an existing key must tear the old node down through onEvict —
+    // a plain delete would drop it from the map while its GPU resources leak.
+    // Skip when the same object is re-set (a pure recency bump).
+    const prev = this.nodes.get(key);
+    if (prev !== undefined && prev !== node) {
+      this.onEvict(key, prev);
+    }
     this.nodes.delete(key);
     this.nodes.set(key, node);
     this._evictOverBudget();
