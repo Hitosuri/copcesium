@@ -1,11 +1,6 @@
 import * as Cesium from 'cesium';
 import { vertexShaderSource, fragmentShaderSource } from './shaders';
-
-export interface NodeRenderData {
-  positions: Float64Array;
-  colors: Uint8Array;
-  pointCount: number;
-}
+import type { NodeRenderData } from '../types';
 
 export interface Ref<T> {
   value: T;
