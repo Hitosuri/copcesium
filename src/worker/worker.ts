@@ -1,0 +1,187 @@
+import { Copc } from 'copc';
+import type { View } from 'copc';
+import { LazPerf } from 'laz-perf';
+import proj4 from 'proj4';
+// `?url` forces Vite to treat this as a tracked asset (inlined as a base64
+// data: URI in library builds) instead of letting laz-perf's Emscripten glue
+// derive the path from `self.location.href` at runtime, which breaks in a
+// bundled Worker (confirmed by an earlier spike — see PR description).
+import wasmUrl from 'laz-perf/lib/web/laz-perf.wasm?url';
+import type { WorkerRequest, WorkerResponse } from './WorkerPool';
+import type { NodeConversionPayload } from './messages';
+import type { NodeRenderData } from '../types';
+
+// This file always runs inside a Worker, never a Window, but the project's
+// tsconfig only includes the "DOM" lib (not "webworker") to avoid the global
+// type conflicts between the two. Re-declare postMessage with its Worker
+// signature (message, transfer?) instead of Window's (message, targetOrigin,
+// transfer?) so the calls below type-check against what this file actually
+// runs under.
+declare function postMessage(message: unknown, transfer?: Transferable[]): void;
+
+// WGS84 ellipsoid parameters, applied by hand instead of via Cesium.Cartesian3
+// — this worker must never construct a Cesium object (team rule 3).
+const WGS84_A = 6378137.0;
+const WGS84_E2 = 0.00669437999014;
+
+export function lonLatAltToEcef(lonDeg: number, latDeg: number, altM: number): [number, number, number] {
+  const lon = lonDeg * (Math.PI / 180);
+  const lat = latDeg * (Math.PI / 180);
+  const sinLat = Math.sin(lat);
+  const cosLat = Math.cos(lat);
+  const n = WGS84_A / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat);
+  return [
+    (n + altM) * cosLat * Math.cos(lon),
+    (n + altM) * cosLat * Math.sin(lon),
+    (n * (1 - WGS84_E2) + altM) * sinLat,
+  ];
+}
+
+// Fallback color when a node has RGB (checked first, elsewhere) — ASPRS
+// standard LAS classification codes for the entries this table covers.
+const CLASSIFICATION_COLORS: Record<number, [number, number, number]> = {
+  2: [153, 111, 66], // Ground
+  3: [90, 156, 68], // Low Vegetation
+  4: [70, 133, 53], // Medium Vegetation
+  5: [50, 110, 38], // High Vegetation
+  6: [219, 141, 51], // Building
+  9: [59, 121, 191], // Water
+  10: [140, 140, 140], // Rail
+  11: [100, 100, 100], // Road Surface
+};
+const DEFAULT_CLASS_COLOR: [number, number, number] = [190, 190, 190];
+const FLAT_COLOR: [number, number, number] = [200, 200, 200];
+
+function clamp255(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+// Created once and reused for the lifetime of this worker. Recompiling the
+// laz-perf WASM per node is exactly what WorkerPool exists to avoid, so the
+// worker script itself must not undo that by re-creating it per task either.
+let lazPerfPromise: ReturnType<typeof LazPerf.create> | null = null;
+function getLazPerf(): ReturnType<typeof LazPerf.create> {
+  lazPerfPromise ??= LazPerf.create({ locateFile: () => wasmUrl });
+  return lazPerfPromise;
+}
+
+const registeredProjs = new Set<string>();
+
+function tryGetter(view: View, name: string): View.Getter | undefined {
+  try {
+    return view.getter(name);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Fetches a COPC node's compressed point data (HTTP Range Request), decodes
+ * it, and converts it into render-ready ECEF positions and RGBA colors.
+ *
+ * Deliberately stops short of what the original copc-cesium worker did: RTE
+ * high/low splitting now lives in renderer/PointCloudPrimitive.ts (#16), and
+ * the bounding sphere is computed from the node key alone in
+ * lod/boundingVolume.ts (#13), so neither is duplicated here.
+ */
+export async function convertNode(payload: NodeConversionPayload): Promise<NodeRenderData> {
+  const { url, copc, node, proj, projDef, geoidOffset, zFactor } = payload;
+
+  const lazPerf = await getLazPerf();
+  const view = await Copc.loadPointDataView(url, copc, node, { lazPerf });
+  const n = view.pointCount;
+
+  if (!Number.isInteger(n) || n < 0 || n > 10_000_000) {
+    throw new Error(`Invalid pointCount: ${n}`);
+  }
+
+  const getX = view.getter('X');
+  const getY = view.getter('Y');
+  const getZ = view.getter('Z');
+  const getR = tryGetter(view, 'Red');
+  const getG = tryGetter(view, 'Green');
+  const getB = tryGetter(view, 'Blue');
+  const hasRGB = !!(getR && getG && getB);
+  const getCls = hasRGB ? undefined : tryGetter(view, 'Classification');
+
+  if (proj !== 'EPSG:4326' && projDef && !registeredProjs.has(proj)) {
+    proj4.defs(proj, projDef);
+    registeredProjs.add(proj);
+  }
+  const needsProj = proj !== 'EPSG:4326';
+  const converter = needsProj ? proj4(proj, 'EPSG:4326') : null;
+
+  // Sample the RGB range once up front so 16-bit-encoded colors (0-65535,
+  // common in LAS producers) scale down correctly instead of clipping to a
+  // handful of near-black values.
+  let maxColor = 0;
+  if (hasRGB) {
+    for (let i = 0; i < n; i++) {
+      const r = getR!(i);
+      const g = getG!(i);
+      const b = getB!(i);
+      if (r > maxColor) maxColor = r;
+      if (g > maxColor) maxColor = g;
+      if (b > maxColor) maxColor = b;
+    }
+  }
+  const colorScale = maxColor > 255 ? 65535 : 255;
+
+  const positions = new Float64Array(n * 3);
+  const colors = new Uint8Array(n * 4);
+
+  for (let i = 0; i < n; i++) {
+    const x = getX(i);
+    const y = getY(i);
+    const z = getZ(i);
+
+    let lon: number;
+    let lat: number;
+    if (needsProj && converter) {
+      [lon, lat] = converter.forward([x, y]);
+      if (!isFinite(lon) || !isFinite(lat)) {
+        throw new Error(`proj4 transform produced a non-finite coordinate at point ${i}: x=${x}, y=${y}`);
+      }
+    } else {
+      lon = x;
+      lat = y;
+    }
+    const alt = z * zFactor + geoidOffset;
+    const [ecefX, ecefY, ecefZ] = lonLatAltToEcef(lon, lat, alt);
+
+    const i3 = i * 3;
+    positions[i3] = ecefX;
+    positions[i3 + 1] = ecefY;
+    positions[i3 + 2] = ecefZ;
+
+    const i4 = i * 4;
+    if (hasRGB) {
+      colors[i4] = clamp255((getR!(i) / colorScale) * 255);
+      colors[i4 + 1] = clamp255((getG!(i) / colorScale) * 255);
+      colors[i4 + 2] = clamp255((getB!(i) / colorScale) * 255);
+    } else if (getCls) {
+      const [r, g, b] = CLASSIFICATION_COLORS[getCls(i) & 0xff] ?? DEFAULT_CLASS_COLOR;
+      colors[i4] = r;
+      colors[i4 + 1] = g;
+      colors[i4 + 2] = b;
+    } else {
+      colors[i4] = FLAT_COLOR[0];
+      colors[i4 + 1] = FLAT_COLOR[1];
+      colors[i4 + 2] = FLAT_COLOR[2];
+    }
+    colors[i4 + 3] = 255;
+  }
+
+  return { positions, colors, pointCount: n };
+}
+
+self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
+  const { id, payload } = e.data;
+  try {
+    const result = await convertNode(payload as NodeConversionPayload);
+    postMessage({ id, result } satisfies WorkerResponse, [result.positions.buffer, result.colors.buffer]);
+  } catch (err) {
+    const error = err as Error;
+    postMessage({ id, error: { name: error.name, message: error.message } } satisfies WorkerResponse);
+  }
+};
