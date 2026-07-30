@@ -4,14 +4,13 @@
   "description": "CesiumJS provider for real-time COPC point cloud streaming and rendering",
   "type": "module",
   "license": "MIT",
-  "main": "./dist/copc-cesium.cjs",
+  "main": "./dist/copc-cesium.mjs",
   "module": "./dist/copc-cesium.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/copc-cesium.mjs",
-      "require": "./dist/copc-cesium.cjs"
+      "import": "./dist/copc-cesium.mjs"
     }
   },
   "files": [
