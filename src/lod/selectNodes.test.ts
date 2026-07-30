@@ -135,6 +135,76 @@ describe('selectNodes', () => {
     expect(selected).toEqual(['0-0-0-0']);
   });
 
+  it('descends into children instead of selecting a node with zero points, even below the SSE threshold', () => {
+    const nodes = makeOneLevelOctree();
+    nodes['0-0-0-0'] = { pointCount: 0, pointDataOffset: 0, pointDataLength: 0 };
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 100_000), // far enough that SSE is well below threshold
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+    });
+
+    // The root itself holds no points, so it must never appear in the
+    // selection regardless of SSE; its 8 populated children stand in for it.
+    expect(selected).not.toContain('0-0-0-0');
+    expect(selected).toHaveLength(8);
+  });
+
+  it('drops a zero-point node with no populated children entirely, rather than selecting an empty leaf', () => {
+    const nodes: Hierarchy.Node.Map = {
+      '0-0-0-0': { pointCount: 0, pointDataOffset: 0, pointDataLength: 0 },
+    };
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 100_000),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+    });
+
+    expect(selected).toEqual([]);
+  });
+
+  it('keeps the higher-screen-space-error nodes when maxVisibleNodes truncates the selection', () => {
+    const nodes = makeOneLevelOctree();
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 30),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 4,
+    });
+
+    // Children at z=+5 (zi=1) sit closer to the camera at z=30 than children
+    // at z=-5 (zi=0), so they have a higher screen-space error and must win
+    // the budget over the farther half — a priority-ordered traversal keeps
+    // them regardless of which order they were enqueued in.
+    expect(new Set(selected)).toEqual(new Set(['1-0-0-1', '1-0-1-1', '1-1-0-1', '1-1-1-1']));
+  });
+
   it('stops the traversal once maxVisibleNodes is reached', () => {
     const nodes = makeOneLevelOctree();
     const camera = makeCamera(
