@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Viewer } from 'cesium';
+import type { NodeRenderData } from './types';
 
 const create = vi.fn();
 const loadHierarchyPage = vi.fn();
@@ -11,9 +12,72 @@ vi.mock('copc', () => ({
   },
 }));
 
+// CopcDataSource wires up a real WorkerPool, which would otherwise construct
+// an actual `new Worker(...)` immediately in its constructor — unavailable
+// under jsdom. `run`/`destroy` are shared vi.fn()s so individual tests can
+// configure per-call behavior (e.g. mockResolvedValueOnce) the same way they
+// already do for the mocked `copc` module below.
+const workerPoolRun = vi.fn();
+const workerPoolDestroy = vi.fn();
+vi.mock('./worker/WorkerPool', () => ({
+  // `new`-able: mockImplementation's function must support construction, which
+  // an arrow function cannot — returning an object from a regular function
+  // constructor makes `new WorkerPool(...)` resolve to that object (per spec).
+  WorkerPool: vi.fn().mockImplementation(function () {
+    return {
+      run: (...args: unknown[]) => workerPoolRun(...args),
+      destroy: (...args: unknown[]) => workerPoolDestroy(...args),
+    };
+  }),
+}));
+
+// The update-loop tests below only care whether CopcDataSource correctly wires
+// selectNodes()'s output through WorkerPool -> NodeCache -> scene.primitives —
+// selectNodes()'s own frustum/SSE geometry is already covered by
+// lod/selectNodes.test.ts, so it's stubbed here to a fixed key rather than
+// requiring a geometrically valid camera/frustum in every test.
+const selectNodesMock = vi.fn<(...args: unknown[]) => string[]>();
+vi.mock('./lod/selectNodes', () => ({
+  selectNodes: (...args: unknown[]) => selectNodesMock(...args),
+}));
+
 const { CopcDataSource } = await import('./CopcDataSource');
 
-const fakeViewer = {} as Viewer;
+// workerPoolRun/workerPoolDestroy/selectNodesMock are shared across every test
+// in this file, so their call counts must be reset per test — otherwise
+// toHaveBeenCalledTimes() assertions accumulate across unrelated tests.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+function makeFakeViewer() {
+  let updateCallback: (() => void) | undefined;
+  const addPrimitive = vi.fn();
+  const removePrimitive = vi.fn();
+  const removeUpdateListener = vi.fn();
+  const viewer = {
+    scene: {
+      preRender: {
+        addEventListener: vi.fn((cb: () => void) => {
+          updateCallback = cb;
+          return removeUpdateListener;
+        }),
+      },
+      primitives: { add: addPrimitive, remove: removePrimitive },
+      camera: {},
+      canvas: { clientHeight: 600 },
+    },
+  } as unknown as Viewer;
+  return {
+    viewer,
+    addPrimitive,
+    removePrimitive,
+    removeUpdateListener,
+    triggerUpdate: () => updateCallback!(),
+  };
+}
+
+const fakeViewer = makeFakeViewer().viewer;
 
 function mockCopc(wkt: string | undefined) {
   create.mockResolvedValueOnce({
@@ -100,5 +164,64 @@ describe('CopcDataSource.load', () => {
     const opts = (ds as unknown as { _options: { zFactor: number; xyFactor: number } })._options;
     expect(opts.zFactor).toBe(1);
     expect(opts.xyFactor).toBe(1);
+  });
+});
+
+describe('CopcDataSource update loop', () => {
+  const renderData: NodeRenderData = {
+    positions: new Float64Array([6378137, 0, 0]),
+    colors: new Uint8Array([255, 0, 0, 255]),
+    pointCount: 1,
+  };
+
+  beforeEach(() => {
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+  });
+
+  it('loads a selected node through the worker pool and adds its primitive to the scene', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, triggerUpdate } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+
+    expect(workerPoolRun).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'https://example.com/sample.copc.laz', proj: 'EPSG:4326' }),
+    );
+  });
+
+  it('does not re-dispatch a node that is already cached on a later update', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, triggerUpdate } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+
+    triggerUpdate();
+
+    expect(workerPoolRun).toHaveBeenCalledTimes(1);
+    expect(addPrimitive).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroy() tears down the worker pool and node cache, and removes the update listener', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, removePrimitive, removeUpdateListener, triggerUpdate } = makeFakeViewer();
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    // Wait for the node to actually reach NodeCache (right after scene.primitives.add),
+    // not just for the worker to resolve, so destroy() has something to tear down.
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+
+    ds.destroy();
+
+    expect(removeUpdateListener).toHaveBeenCalledTimes(1);
+    expect(workerPoolDestroy).toHaveBeenCalledTimes(1);
+    expect(removePrimitive).toHaveBeenCalledTimes(1);
   });
 });
