@@ -55,6 +55,7 @@ function makeFakeViewer() {
   const addPrimitive = vi.fn();
   const removePrimitive = vi.fn();
   const removeUpdateListener = vi.fn();
+  const requestRender = vi.fn();
   const viewer = {
     scene: {
       preRender: {
@@ -66,6 +67,7 @@ function makeFakeViewer() {
       primitives: { add: addPrimitive, remove: removePrimitive },
       camera: {},
       canvas: { clientHeight: 600 },
+      requestRender,
     },
   } as unknown as Viewer;
   return {
@@ -73,6 +75,7 @@ function makeFakeViewer() {
     addPrimitive,
     removePrimitive,
     removeUpdateListener,
+    requestRender,
     triggerUpdate: () => updateCallback!(),
   };
 }
@@ -204,7 +207,7 @@ describe('CopcDataSource update loop', () => {
   it('loads a selected node through the worker pool and adds its primitive to the scene', async () => {
     mockCopc(undefined);
     workerPoolRun.mockResolvedValueOnce(renderData);
-    const { viewer, addPrimitive, triggerUpdate } = makeFakeViewer();
+    const { viewer, addPrimitive, requestRender, triggerUpdate } = makeFakeViewer();
 
     await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
     triggerUpdate();
@@ -213,6 +216,9 @@ describe('CopcDataSource update loop', () => {
     expect(workerPoolRun).toHaveBeenCalledWith(
       expect.objectContaining({ url: 'https://example.com/sample.copc.laz', proj: 'EPSG:4326' }),
     );
+    // Required under `requestRenderMode: true` for the new primitive to actually
+    // appear; harmless (no-op) under continuous rendering otherwise.
+    expect(requestRender).toHaveBeenCalled();
   });
 
   it('does not re-dispatch a node that is already cached on a later update', async () => {
