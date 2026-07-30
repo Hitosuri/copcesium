@@ -1,3 +1,11 @@
+// Minimal example of copcesium's public API — everything a consumer needs is
+// `CopcDataSource.load()`, a handful of live properties on the returned
+// instance (`pixelSize`, `sseThreshold`, ...), and `destroy()`. COPC (Cloud
+// Optimized Point Cloud) files stream in over HTTP range requests; load()
+// resolves once the initial hierarchy is fetched and the camera has finished
+// flying to the dataset (`autoFrame`, default true — see CopcDataSourceOptions
+// in ../src/types.ts for this and every other option, only a few of which
+// are used below).
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { CopcDataSource } from '../src/index';
@@ -12,14 +20,12 @@ const viewer = new Cesium.Viewer('cesiumContainer');
 // relying on CRS auto-detection.
 const SAMPLE_URL = 'https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz';
 const SAMPLE_OPTIONS: CopcDataSourceOptions = {
-  proj: 'EPSG:2992',
-  projDef:
+  proj: 'EPSG:2992', // EPSG code of the point cloud's source CRS
+  projDef: // proj4 definition string for that CRS (only needed if proj4 doesn't already know it)
     '+proj=lcc +lat_1=43 +lat_2=45.5 +lat_0=41.75 +lon_0=-120.5' +
     ' +x_0=399999.9999999999 +y_0=0 +datum=NAD83 +units=ft +no_defs',
-  geoidOffset: -20,
+  geoidOffset: -20, // meters, geoid (this file's vertical datum) minus WGS84 ellipsoid, at this site
 };
-// Autzen Stadium, Eugene, Oregon — where the sample dataset above is.
-const SAMPLE_VIEW = Cesium.Cartesian3.fromDegrees(-123.0868, 44.0582, 1200);
 
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const loadBtn = document.getElementById('loadBtn') as HTMLButtonElement;
@@ -79,5 +85,6 @@ sseThresholdSlider.addEventListener('input', () => {
 });
 
 urlInput.value = SAMPLE_URL;
+// CopcDataSource.load() flies the camera to the dataset itself (autoFrame,
+// default true) — no manual camera positioning needed here.
 void load(SAMPLE_URL, SAMPLE_OPTIONS);
-viewer.camera.flyTo({ destination: SAMPLE_VIEW });
