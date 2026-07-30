@@ -1,12 +1,11 @@
 import { Copc } from 'copc';
 import type { View } from 'copc';
-import { LazPerf } from 'laz-perf';
+// `laz-perf/lib/worker` (not the top-level `laz-perf`/`lib/web` entry) has
+// `ENVIRONMENT_IS_WORKER` compiled in as `true`; this file always executes
+// inside a Worker, and the web build's glue code assumes window/DOM globals
+// that aren't present here.
+import { LazPerf } from 'laz-perf/lib/worker';
 import proj4 from 'proj4';
-// `?url` forces Vite to treat this as a tracked asset (inlined as a base64
-// data: URI in library builds) instead of letting laz-perf's Emscripten glue
-// derive the path from `self.location.href` at runtime, which breaks in a
-// bundled Worker (confirmed by an earlier spike — see PR description).
-import wasmUrl from 'laz-perf/lib/web/laz-perf.wasm?url';
 import type { WorkerRequest, WorkerResponse } from './WorkerPool';
 import type { NodeConversionPayload } from './messages';
 import type { NodeRenderData } from '../types';
@@ -61,7 +60,17 @@ function clamp255(v: number): number {
 // worker script itself must not undo that by re-creating it per task either.
 let lazPerfPromise: ReturnType<typeof LazPerf.create> | null = null;
 function getLazPerf(): ReturnType<typeof LazPerf.create> {
-  lazPerfPromise ??= LazPerf.create({ locateFile: () => wasmUrl });
+  // Resolves next to this worker chunk's own emitted location, whether that's
+  // the dev server or the `assets/` directory of a production build — see
+  // the `laz-perf-wasm` Vite plugin in vite.config.ts, which places the real
+  // laz-perf.wasm file there instead of letting Vite inline it as an opaque
+  // `data:` URI (which muted decode errors — see issue #B10).
+  lazPerfPromise ??= LazPerf.create({
+    // The asset isn't statically analyzable (it's emitted manually by the
+    // laz-perf-wasm Vite plugin, not imported), so Vite can't verify it at
+    // build time — that's expected here, not a mistake.
+    locateFile: () => /* @vite-ignore */ new URL('laz-perf.wasm', import.meta.url).href,
+  });
   return lazPerfPromise;
 }
 

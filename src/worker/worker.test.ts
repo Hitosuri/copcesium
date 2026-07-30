@@ -9,11 +9,9 @@ vi.mock('copc', () => ({
 }));
 
 const lazPerfCreate = vi.fn().mockResolvedValue({});
-vi.mock('laz-perf', () => ({
+vi.mock('laz-perf/lib/worker', () => ({
   LazPerf: { create: (...args: unknown[]) => lazPerfCreate(...args) },
 }));
-
-vi.mock('laz-perf/lib/web/laz-perf.wasm?url', () => ({ default: 'mock-wasm-url' }));
 
 const proj4Defs = vi.fn();
 const proj4Forward = vi.fn((coord: [number, number]) => coord);
