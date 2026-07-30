@@ -162,6 +162,9 @@ export class CopcDataSource {
       }
       this._viewer.scene.primitives.add(primitive);
       this._nodeCache.set(key, { key, primitive, pointCount: renderData.pointCount });
+      // Newly-added primitives must be visible under `requestRenderMode: true`
+      // (a no-op otherwise, since continuous rendering already re-draws every frame).
+      this._viewer.scene.requestRender();
     } catch (err) {
       if (this._destroyed) return;
       console.error(`[CopcDataSource] Failed to load node "${key}":`, err);
@@ -172,6 +175,7 @@ export class CopcDataSource {
 
   private _destroyLoadedNode(node: LoadedNode): void {
     this._viewer.scene.primitives.remove(node.primitive);
+    this._viewer.scene.requestRender();
   }
 
   destroy(): void {
