@@ -31,6 +31,15 @@ export class NodeCache {
     return node;
   }
 
+  /** Reads a node without bumping its LRU recency, for hot per-frame lookups. */
+  peek(key: string): LoadedNode | undefined {
+    return this.nodes.get(key);
+  }
+
+  get size(): number {
+    return this.nodes.size;
+  }
+
   set(key: string, node: LoadedNode): void {
     if (this.destroyed) {
       // Nothing is tracking this node anymore; let the caller clean it up

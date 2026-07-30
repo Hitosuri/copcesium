@@ -41,20 +41,39 @@ vi.mock('./lod/selectNodes', () => ({
   selectNodes: (...args: unknown[]) => selectNodesMock(...args),
 }));
 
+// _updateVisibility() (the per-frame path) calls getCullingVolume/isInFrustum
+// directly — independently of selectNodes(), which is mocked above — so it
+// needs its own camera-frustum math stubbed out too. getNodeBoundingSphere is
+// kept real: it's pure math (no camera needed) and _getSphere's caching is
+// worth exercising for real.
+const isInFrustumMock = vi.fn<(...args: unknown[]) => boolean>(() => true);
+vi.mock('./lod/boundingVolume', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lod/boundingVolume')>();
+  return {
+    ...actual,
+    getCullingVolume: vi.fn(() => ({})),
+    isInFrustum: (...args: unknown[]) => isInFrustumMock(...args),
+  };
+});
+
 const { CopcDataSource } = await import('./CopcDataSource');
 
-// workerPoolRun/workerPoolDestroy/selectNodesMock are shared across every test
-// in this file, so their call counts must be reset per test — otherwise
-// toHaveBeenCalledTimes() assertions accumulate across unrelated tests.
+// workerPoolRun/workerPoolDestroy/selectNodesMock/isInFrustumMock are shared
+// across every test in this file, so their state must be reset per test —
+// otherwise toHaveBeenCalledTimes() assertions accumulate across unrelated
+// tests and mockReturnValue() leaks between them.
 beforeEach(() => {
   vi.clearAllMocks();
+  isInFrustumMock.mockReturnValue(true);
 });
 
 function makeFakeViewer() {
   let updateCallback: (() => void) | undefined;
+  let moveEndCallback: (() => void) | undefined;
   const addPrimitive = vi.fn();
   const removePrimitive = vi.fn();
   const removeUpdateListener = vi.fn();
+  const removeMoveEndListener = vi.fn();
   const requestRender = vi.fn();
   const viewer = {
     scene: {
@@ -65,7 +84,17 @@ function makeFakeViewer() {
         }),
       },
       primitives: { add: addPrimitive, remove: removePrimitive },
-      camera: {},
+      camera: {
+        moveEnd: {
+          addEventListener: vi.fn((cb: () => void) => {
+            moveEndCallback = cb;
+            return removeMoveEndListener;
+          }),
+        },
+        // Resolves zoomTo()'s promise immediately (real geometry isn't needed —
+        // that's covered by dedicated zoomTo tests further down).
+        flyToBoundingSphere: vi.fn((_sphere: unknown, opts: { complete?: () => void }) => opts.complete?.()),
+      },
       canvas: { clientHeight: 600 },
       requestRender,
     },
@@ -75,8 +104,10 @@ function makeFakeViewer() {
     addPrimitive,
     removePrimitive,
     removeUpdateListener,
+    removeMoveEndListener,
     requestRender,
     triggerUpdate: () => updateCallback!(),
+    triggerMoveEnd: () => moveEndCallback!(),
   };
 }
 
@@ -191,6 +222,41 @@ describe('CopcDataSource.load', () => {
     expect(opts.zFactor).toBe(1);
     expect(opts.xyFactor).toBe(1);
   });
+
+  it('flies the camera to the dataset by default (autoFrame)', async () => {
+    mockCopc(undefined);
+    const { viewer } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+
+    expect(viewer.scene.camera.flyToBoundingSphere).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips camera framing when autoFrame is false', async () => {
+    mockCopc(undefined);
+    const { viewer } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { autoFrame: false });
+
+    expect(viewer.scene.camera.flyToBoundingSphere).not.toHaveBeenCalled();
+  });
+
+  it('reuses an externally-provided WorkerPool instead of constructing its own', async () => {
+    mockCopc(undefined);
+    const { WorkerPool } = await import('./worker/WorkerPool');
+    const externalRun = vi.fn();
+    const externalDestroy = vi.fn();
+    const externalPool = { run: externalRun, destroy: externalDestroy } as unknown as InstanceType<
+      typeof WorkerPool
+    >;
+    const constructCallsBefore = vi.mocked(WorkerPool).mock.calls.length;
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer, {}, externalPool);
+    ds.destroy();
+
+    expect(vi.mocked(WorkerPool).mock.calls.length).toBe(constructCallsBefore); // no new pool constructed
+    expect(externalDestroy).not.toHaveBeenCalled(); // destroy() must not tear down a borrowed pool
+  });
 });
 
 describe('CopcDataSource update loop', () => {
@@ -219,6 +285,8 @@ describe('CopcDataSource update loop', () => {
     // Required under `requestRenderMode: true` for the new primitive to actually
     // appear; harmless (no-op) under continuous rendering otherwise.
     expect(requestRender).toHaveBeenCalled();
+    // Newly-loaded, still-selected nodes must actually be shown.
+    expect(addPrimitive.mock.calls[0][0].show).toBe(true);
   });
 
   it('does not re-dispatch a node that is already cached on a later update', async () => {
@@ -236,10 +304,66 @@ describe('CopcDataSource update loop', () => {
     expect(addPrimitive).toHaveBeenCalledTimes(1);
   });
 
-  it('destroy() tears down the worker pool and node cache, and removes the update listener', async () => {
+  it('hides a cached node when it drops out of the LoD selection, and re-shows it without re-dispatching if reselected', async () => {
     mockCopc(undefined);
     workerPoolRun.mockResolvedValueOnce(renderData);
-    const { viewer, addPrimitive, removePrimitive, removeUpdateListener, triggerUpdate } = makeFakeViewer();
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const primitive = addPrimitive.mock.calls[0][0];
+    expect(primitive.show).toBe(true);
+
+    selectNodesMock.mockReturnValue([]); // nothing selected anymore
+    triggerUpdate();
+    expect(primitive.show).toBe(false);
+    expect(removePrimitive).not.toHaveBeenCalled(); // hidden, not evicted from the cache/scene
+
+    selectNodesMock.mockReturnValue(['0-0-0-0']); // selected again
+    triggerUpdate();
+    expect(primitive.show).toBe(true);
+    expect(workerPoolRun).toHaveBeenCalledTimes(1); // never re-dispatched to the worker
+  });
+
+  it('hides a selected node when it falls out of the live frustum, without re-dispatching or evicting it', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const primitive = addPrimitive.mock.calls[0][0];
+    expect(primitive.show).toBe(true);
+
+    // Exercises the cheap per-frame path directly rather than the throttled
+    // preRender hook, so this isn't sensitive to debounceMs vs. real elapsed
+    // time (both driven off the same _onPreRender() call otherwise).
+    isInFrustumMock.mockReturnValue(false);
+    (ds as unknown as { _updateVisibility(): void })._updateVisibility();
+
+    expect(primitive.show).toBe(false);
+    expect(workerPoolRun).toHaveBeenCalledTimes(1);
+    expect(removePrimitive).not.toHaveBeenCalled();
+  });
+
+  it('camera.moveEnd runs the LoD pass immediately, bypassing the debounce', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, triggerMoveEnd } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 1_000_000 });
+    triggerMoveEnd();
+
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+  });
+
+  it('destroy() tears down the worker pool and node cache, and removes both listeners', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, removePrimitive, removeUpdateListener, removeMoveEndListener, triggerUpdate } =
+      makeFakeViewer();
 
     const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
     triggerUpdate();
@@ -250,7 +374,50 @@ describe('CopcDataSource update loop', () => {
     ds.destroy();
 
     expect(removeUpdateListener).toHaveBeenCalledTimes(1);
+    expect(removeMoveEndListener).toHaveBeenCalledTimes(1);
     expect(workerPoolDestroy).toHaveBeenCalledTimes(1);
     expect(removePrimitive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CopcDataSource runtime API', () => {
+  beforeEach(() => {
+    selectNodesMock.mockReturnValue([]);
+  });
+
+  it('pixelSize get/set writes the shared ref and requests a render', async () => {
+    mockCopc(undefined);
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { pixelSize: 2 });
+    requestRender.mockClear(); // ignore the render(s) requested during load()
+
+    expect(ds.pixelSize).toBe(2);
+    ds.pixelSize = 5;
+    expect(ds.pixelSize).toBe(5);
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it('sseThreshold get/set triggers an immediate LoD pass', async () => {
+    mockCopc(undefined);
+    const { viewer } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, {
+      sseThreshold: 250,
+      debounceMs: 1_000_000,
+    });
+    selectNodesMock.mockClear();
+
+    expect(ds.sseThreshold).toBe(250);
+    ds.sseThreshold = 100;
+    expect(ds.sseThreshold).toBe(100);
+    expect(selectNodesMock).toHaveBeenCalledWith(expect.objectContaining({ sseThreshold: 100 }));
+  });
+
+  it('exposes maxDepth/nodeCount/cacheSize as read-only state', async () => {
+    mockCopc(undefined);
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer);
+
+    expect(ds.nodeCount).toBe(1); // the single '0-0-0-0' node from mockCopc()'s fixture
+    expect(ds.maxDepth).toBe(0);
+    expect(ds.cacheSize).toBe(0); // nothing loaded yet
   });
 });
