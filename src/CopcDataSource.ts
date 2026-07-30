@@ -82,17 +82,21 @@ export class CopcDataSource {
 
     const hierarchy = await loadCopcHierarchy(url);
 
-    if (!resolved.projDef) {
-      const detected = detectCrs(hierarchy.copc.wkt, url);
-      if (detected) {
+    // Run WKT detection unconditionally — even when the caller overrides
+    // proj/projDef, the file's WKT may still be the only source of the true
+    // zFactor/xyFactor (e.g. a compound CRS with foot-based vertical units).
+    // proj/projDef and zFactor/xyFactor are therefore applied independently,
+    // each only when the user did not explicitly set that particular field.
+    const detected = detectCrs(hierarchy.copc.wkt, url);
+    if (detected) {
+      if (!resolved.projDef) {
         resolved.proj = detected.proj;
         resolved.projDef = detected.projDef;
-        // Detection only fills in a factor the user did not explicitly set —
-        // check the raw `options` argument, not `resolved`, since `resolved`
-        // already carries the (indistinguishable) default of 1.
-        if (options.zFactor === undefined) resolved.zFactor = detected.zFactor;
-        if (options.xyFactor === undefined) resolved.xyFactor = detected.xyFactor;
       }
+      // Check the raw `options` argument, not `resolved`, since `resolved`
+      // already carries the (indistinguishable) default of 1.
+      if (options.zFactor === undefined) resolved.zFactor = detected.zFactor;
+      if (options.xyFactor === undefined) resolved.xyFactor = detected.xyFactor;
     }
     if (resolved.projDef && resolved.proj !== 'EPSG:4326') {
       proj4.defs(resolved.proj, resolved.projDef);

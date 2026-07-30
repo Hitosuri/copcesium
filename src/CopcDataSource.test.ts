@@ -140,6 +140,29 @@ describe('CopcDataSource.load', () => {
     expect(opts.xyFactor).toBeCloseTo(0.3048006096, 8);
   });
 
+  it('still detects zFactor/xyFactor from the WKT when the user provides an explicit proj/projDef', async () => {
+    // Regression test for #38: a compound CRS can declare foot-based vertical
+    // units even when the caller supplies its own horizontal proj/projDef
+    // (e.g. the real Autzen COPC dataset — NAD83 Oregon Lambert (ft) + NAVD88
+    // (ftUS)). zFactor/xyFactor detection must not be skipped just because
+    // the caller overrode proj/projDef.
+    const wkt =
+      'PROJCS["NAD83 / California zone 5", GARBAGE, ID["EPSG",2229]], ' +
+      'LENGTHUNIT["US survey foot",0.304800609601219]';
+    mockCopc(wkt);
+
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer, {
+      proj: 'EPSG:5186',
+      projDef: '+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs',
+    });
+
+    const opts = (ds as unknown as { _options: { proj: string; projDef: string; zFactor: number; xyFactor: number } })
+      ._options;
+    expect(opts.proj).toBe('EPSG:5186'); // explicit proj/projDef still wins
+    expect(opts.zFactor).toBeCloseTo(0.3048006096, 8);
+    expect(opts.xyFactor).toBeCloseTo(0.3048006096, 8);
+  });
+
   it('lets explicit zFactor/xyFactor options take priority over auto-detection', async () => {
     const wkt =
       'PROJCS["NAD83 / California zone 5", GARBAGE, ID["EPSG",2229]], ' +
