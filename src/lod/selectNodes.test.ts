@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import * as Cesium from 'cesium';
 import type { Hierarchy } from 'copc';
 import { selectNodes } from './selectNodes';
-import type { ProjectToCartesian } from './boundingVolume';
+import { getNodeBoundingSphere, type ProjectToCartesian } from './boundingVolume';
 
 // Identity projection that passes coordinates straight through to Cartesian3 (verifies pure math, no CRS involved)
 const identityProject: ProjectToCartesian = (x, y, z) => new Cesium.Cartesian3(x, y, z);
+
+// selectNodes() takes a getSphere callback (real callers memoize it); tests just wrap
+// getNodeBoundingSphere directly since there's no caching behavior to verify here.
+function makeGetSphere(rootCenter: { x: number; y: number; z: number }, rootHalfSize: number) {
+  return (key: string): Cesium.BoundingSphere =>
+    getNodeBoundingSphere(key, rootCenter, rootHalfSize, identityProject);
+}
 
 // A minimal mock octree: root (level 0) and its 8 children (level 1). Every key present in
 // `nodes` is treated as "has data"; keys absent from the map are treated as empty octree cells.
@@ -63,9 +70,7 @@ describe('selectNodes', () => {
 
     const selected = selectNodes({
       nodes,
-      rootCenter,
-      rootHalfSize,
-      project: identityProject,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
       camera,
       viewportHeight: 1000,
       sseThreshold: 16,
@@ -85,9 +90,7 @@ describe('selectNodes', () => {
 
     const selected = selectNodes({
       nodes,
-      rootCenter,
-      rootHalfSize,
-      project: identityProject,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
       camera,
       viewportHeight: 1000,
       sseThreshold: 16,
@@ -122,9 +125,7 @@ describe('selectNodes', () => {
 
     const selected = selectNodes({
       nodes,
-      rootCenter,
-      rootHalfSize,
-      project: identityProject,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
       camera,
       viewportHeight: 1000,
       sseThreshold: 16,
@@ -144,9 +145,7 @@ describe('selectNodes', () => {
 
     const selected = selectNodes({
       nodes,
-      rootCenter,
-      rootHalfSize,
-      project: identityProject,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
       camera,
       viewportHeight: 1000,
       sseThreshold: 16,
@@ -168,9 +167,7 @@ describe('selectNodes', () => {
 
     const selected = selectNodes({
       nodes,
-      rootCenter,
-      rootHalfSize,
-      project: identityProject,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
       camera,
       viewportHeight: 1000,
       sseThreshold: 16,

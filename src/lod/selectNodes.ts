@@ -1,12 +1,7 @@
 import * as Cesium from 'cesium';
 import type { Hierarchy } from 'copc';
 import { getChildKeys } from '../copc/node';
-import {
-  getCullingVolume,
-  getNodeBoundingSphere,
-  isInFrustum,
-  type ProjectToCartesian,
-} from './boundingVolume';
+import { getCullingVolume, isInFrustum } from './boundingVolume';
 import { computeScreenSpaceError } from './screenSpaceError';
 
 // Camera.frustum is PerspectiveFrustum | PerspectiveOffCenterFrustum | OrthographicFrustum;
@@ -21,10 +16,14 @@ function getFovy(frustum: Cesium.Camera['frustum']): number {
 
 export interface SelectNodesOptions {
   nodes: Hierarchy.Node.Map;
-  rootCenter: { x: number; y: number; z: number };
-  rootHalfSize: number;
-  project: ProjectToCartesian;
-  xyFactor?: number;
+  /**
+   * Returns (and, per the caller's discretion, caches) a node's bounding
+   * sphere. Pulled out as a callback rather than raw ingredients
+   * (rootCenter/rootHalfSize/project/xyFactor) so a caller can memoize per
+   * key instead of recomputing a proj4 transform for every node on every
+   * BFS pass.
+   */
+  getSphere: (key: string) => Cesium.BoundingSphere;
   camera: Cesium.Camera;
   viewportHeight: number;
   sseThreshold: number;
@@ -40,17 +39,7 @@ export interface SelectNodesOptions {
  * frustum are dropped along with their whole subtree.
  */
 export function selectNodes(options: SelectNodesOptions): string[] {
-  const {
-    nodes,
-    rootCenter,
-    rootHalfSize,
-    project,
-    xyFactor = 1,
-    camera,
-    viewportHeight,
-    sseThreshold,
-    maxVisibleNodes,
-  } = options;
+  const { nodes, getSphere, camera, viewportHeight, sseThreshold, maxVisibleNodes } = options;
 
   const cullingVolume = getCullingVolume(camera);
   const selected: string[] = [];
@@ -60,7 +49,7 @@ export function selectNodes(options: SelectNodesOptions): string[] {
     const key = queue.shift()!;
     if (!nodes[key]) continue;
 
-    const sphere = getNodeBoundingSphere(key, rootCenter, rootHalfSize, project, xyFactor);
+    const sphere = getSphere(key);
     if (!isInFrustum(sphere, cullingVolume)) continue;
 
     const childKeys = getChildKeys(key);

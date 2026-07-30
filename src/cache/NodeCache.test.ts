@@ -99,6 +99,39 @@ describe('NodeCache', () => {
     expect(cache.get('a')).toBe(a);
   });
 
+  it('peek() returns a node without bumping its LRU recency', () => {
+    const onEvict = vi.fn();
+    const cache = new NodeCache(2, onEvict);
+    const a = makeNode('a');
+    const b = makeNode('b');
+    const c = makeNode('c');
+
+    cache.set('a', a);
+    cache.set('b', b);
+    cache.peek('a'); // unlike get(), must NOT make 'a' more recent than 'b'
+    cache.set('c', c); // over budget -> 'a' is still the LRU entry, evicted
+
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith('a', a);
+    expect(cache.peek('c')).toBe(c);
+  });
+
+  it('peek() returns undefined for a key that was never set', () => {
+    const cache = new NodeCache(10, vi.fn());
+    expect(cache.peek('missing')).toBeUndefined();
+  });
+
+  it('size reflects the number of currently cached nodes', () => {
+    const cache = new NodeCache(10, vi.fn());
+    expect(cache.size).toBe(0);
+
+    cache.set('a', makeNode('a'));
+    cache.set('b', makeNode('b'));
+    expect(cache.size).toBe(2);
+
+    cache.destroy();
+    expect(cache.size).toBe(0);
+  });
+
   it('never evicts a pinned node even if it is the least-recently-used one', () => {
     const onEvict = vi.fn();
     const cache = new NodeCache(2, onEvict);
