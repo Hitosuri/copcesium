@@ -101,7 +101,7 @@ describe('WorkerPool', () => {
     await expect(promise).rejects.toThrow(/script crashed/);
   });
 
-  it('frees the worker after an error so the next queued task can run', async () => {
+  it('replaces a crashed worker and lets the replacement pick up the next queued task', async () => {
     const { factory, fakeWorkers } = makeFactory();
     const pool = new WorkerPool(factory, 1);
 
@@ -111,10 +111,76 @@ describe('WorkerPool', () => {
     fakeWorkers[0].fail('script crashed');
     await first;
 
+    expect(fakeWorkers[0].terminated).toBe(true);
+    // A crashed worker must not stay in rotation — a fresh one takes its place.
+    expect(fakeWorkers).toHaveLength(2);
+    expect(fakeWorkers[1].received).toEqual([{ id: 1, payload: 'b' }]);
+
+    fakeWorkers[1].reply({ result: 'b-done' });
+    await expect(second).resolves.toBe('b-done');
+  });
+
+  it('gives up replacing a worker once the replacement limit is exceeded, instead of retrying forever', () => {
+    const { factory, fakeWorkers } = makeFactory();
+    const pool = new WorkerPool(factory, 1);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    for (let i = 0; i < 11; i++) {
+      void pool.run('x').catch(() => {});
+      fakeWorkers[fakeWorkers.length - 1].fail('boom');
+    }
+
+    // 1 initial worker + 10 replacements = 11 created; the 11th crash gives up
+    // rather than spawning a 12th, leaving the pool permanently smaller.
+    expect(fakeWorkers).toHaveLength(11);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('replacement limit'));
+
+    errorSpy.mockRestore();
+  });
+
+  it('rejects a task that times out while a worker is processing it, and frees the worker without replacing it', async () => {
+    const { factory, fakeWorkers } = makeFactory();
+    const pool = new WorkerPool(factory, 1);
+
+    const promise = pool.run('a', [], 10);
+    await expect(promise).rejects.toThrow(/timed out/);
+
+    expect(fakeWorkers[0].terminated).toBe(false); // a timeout is not a crash
+    expect(fakeWorkers).toHaveLength(1); // no replacement was created
+
+    // the worker is idle again and usable for a new task
+    const second = pool.run<string>('b');
     expect(fakeWorkers[0].received).toEqual([
       { id: 0, payload: 'a' },
       { id: 1, payload: 'b' },
     ]);
+    fakeWorkers[0].reply({ result: 'b-done' });
+    await expect(second).resolves.toBe('b-done');
+  });
+
+  it('rejects a task that times out while still waiting in the queue, without dispatching it', async () => {
+    const { factory, fakeWorkers } = makeFactory();
+    const pool = new WorkerPool(factory, 1);
+
+    void pool.run('a'); // occupies the only worker
+    const queued = pool.run('b', [], 10);
+
+    await expect(queued).rejects.toThrow(/timed out/);
+    expect(fakeWorkers[0].received).toEqual([{ id: 0, payload: 'a' }]); // 'b' never reached a worker
+  });
+
+  it('ignores a late response for a task that already timed out', async () => {
+    const { factory, fakeWorkers } = makeFactory();
+    const pool = new WorkerPool(factory, 1);
+
+    const promise = pool.run('a', [], 10);
+    await expect(promise).rejects.toThrow(/timed out/);
+
+    const second = pool.run<string>('b');
+    // Stale reply for the already-timed-out task 'a' (id 0), arriving after
+    // 'b' (id 1) was dispatched to the same (freed) worker.
+    fakeWorkers[0].onmessage?.({ data: { id: 0, result: 'late-a' } } as MessageEvent<WorkerResponse>);
+
     fakeWorkers[0].reply({ result: 'b-done' });
     await expect(second).resolves.toBe('b-done');
   });
