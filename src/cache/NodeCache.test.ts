@@ -63,11 +63,40 @@ describe('NodeCache', () => {
 
     cache.set('a', a);
     cache.set('b', b);
-    cache.set('a', aUpdated); // re-set 'a' -> most recently used
+    cache.set('a', aUpdated); // re-set 'a' -> evicts the replaced 'a', becomes most recent
     cache.set('c', c); // should evict 'b', not 'a'
 
-    expect(onEvict).toHaveBeenCalledExactlyOnceWith('b', b);
+    // The replaced node ('a') is torn down, then 'b' as the LRU over budget.
+    expect(onEvict.mock.calls).toEqual([
+      ['a', a],
+      ['b', b],
+    ]);
     expect(cache.get('a')).toBe(aUpdated);
+  });
+
+  it('hands the replaced node to onEvict when overwriting a key, so its primitive is not leaked', () => {
+    const onEvict = vi.fn();
+    const cache = new NodeCache(10, onEvict);
+    const a = makeNode('a');
+    const aReplacement = makeNode('a');
+
+    cache.set('a', a);
+    cache.set('a', aReplacement); // overwrite with a different LoadedNode
+
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith('a', a);
+    expect(cache.get('a')).toBe(aReplacement);
+  });
+
+  it('does not evict when the same node object is re-set (a pure recency bump)', () => {
+    const onEvict = vi.fn();
+    const cache = new NodeCache(10, onEvict);
+    const a = makeNode('a');
+
+    cache.set('a', a);
+    cache.set('a', a); // identical object -> nothing to tear down
+
+    expect(onEvict).not.toHaveBeenCalled();
+    expect(cache.get('a')).toBe(a);
   });
 
   it('never evicts a pinned node even if it is the least-recently-used one', () => {
