@@ -13,6 +13,8 @@ export interface CopcDataSourceOptions {
   zFactor?: number;
   /** Factor that converts the XY axis unit to meters. Auto-detected from the WKT when omitted. */
   xyFactor?: number;
+  /** Whether `load()` flies the camera to the loaded dataset before resolving. Default true. */
+  autoFrame?: boolean;
 }
 
 /** Result of auto-detecting a CRS from a WKT VLR */
