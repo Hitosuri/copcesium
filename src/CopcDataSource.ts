@@ -108,6 +108,26 @@ export class CopcDataSource {
     return new CopcDataSource(url, viewer, hierarchy, resolved, project);
   }
 
+  get pixelSize(): number {
+    return this._pixelSizeRef.value;
+  }
+
+  /** Updates the point size of already-loaded nodes in place — no reload needed. */
+  set pixelSize(value: number) {
+    this._pixelSizeRef.value = value;
+    this._viewer.scene.requestRender();
+  }
+
+  get sseThreshold(): number {
+    return this._options.sseThreshold;
+  }
+
+  /** Takes effect on the next LoD update — no reload needed. */
+  set sseThreshold(value: number) {
+    this._options.sseThreshold = value;
+    this._viewer.scene.requestRender();
+  }
+
   /** Runs on every `Scene.preRender`, throttled to `debounceMs`. */
   private _update(): void {
     if (this._destroyed) return;

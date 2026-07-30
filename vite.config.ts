@@ -46,6 +46,9 @@ export default defineConfig(({ command }) => {
   const isLibBuild = command === 'build';
 
   return {
+    // Dev serves demo/index.html directly; the lib build's `root` stays the
+    // project root (its entry is src/index.ts, not an HTML file).
+    root: isLibBuild ? undefined : resolve(__dirname, 'demo'),
     plugins: [lazPerfWasmPlugin, ...(isLibBuild ? [] : [cesium()])],
     // worker.ts references `import.meta.url` (for the laz-perf.wasm URL
     // above); that's only valid in ES module output, not Vite's default IIFE
