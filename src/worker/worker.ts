@@ -9,6 +9,9 @@ import proj4 from 'proj4';
 import type { WorkerRequest, WorkerResponse } from './WorkerPool';
 import type { NodeConversionPayload } from './messages';
 import type { NodeRenderData } from '../types';
+// laz-perf.wasm, embedded as base64 by vite-plugins/lazPerfWasmInline.ts — see
+// getLazPerf() below for why this worker can't fetch it as a sibling file.
+import lazPerfWasmBase64 from 'virtual:laz-perf-wasm-base64';
 
 // This file always runs inside a Worker, never a Window, but the project's
 // tsconfig only includes the "DOM" lib (not "webworker") to avoid the global
@@ -55,22 +58,27 @@ function clamp255(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 // Created once and reused for the lifetime of this worker. Recompiling the
 // laz-perf WASM per node is exactly what WorkerPool exists to avoid, so the
 // worker script itself must not undo that by re-creating it per task either.
 let lazPerfPromise: ReturnType<typeof LazPerf.create> | null = null;
 function getLazPerf(): ReturnType<typeof LazPerf.create> {
-  // Resolves next to this worker chunk's own emitted location, whether that's
-  // the dev server or the `assets/` directory of a production build — see
-  // the `laz-perf-wasm` Vite plugin in vite.config.ts, which places the real
-  // laz-perf.wasm file there instead of letting Vite inline it as an opaque
-  // `data:` URI (which muted decode errors — see issue #B10).
-  lazPerfPromise ??= LazPerf.create({
-    // The asset isn't statically analyzable (it's emitted manually by the
-    // laz-perf-wasm Vite plugin, not imported), so Vite can't verify it at
-    // build time — that's expected here, not a mistake.
-    locateFile: () => /* @vite-ignore */ new URL('laz-perf.wasm', import.meta.url).href,
-  });
+  // This worker is itself inlined into a Blob at build time (see
+  // `?worker&inline` in CopcDataSource.ts), so it has no stable, fetchable
+  // URL of its own to resolve a sibling laz-perf.wasm against — a Blob's
+  // `import.meta.url` has an opaque origin. Passing the raw bytes directly as
+  // `wasmBinary` skips emscripten's `locateFile`/`fetch` path entirely, which
+  // also sidesteps the muted-error behavior a `data:`-URI fetch had (#B10):
+  // WebAssembly.instantiate() on an in-memory buffer throws a real error, not
+  // one flattened by an opaque-origin fetch.
+  lazPerfPromise ??= LazPerf.create({ wasmBinary: base64ToBytes(lazPerfWasmBase64) });
   return lazPerfPromise;
 }
 
