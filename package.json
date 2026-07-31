@@ -1,6 +1,6 @@
 {
   "name": "copcesium",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CesiumJS provider for real-time COPC point cloud streaming and rendering",
   "type": "module",
   "license": "MIT",
@@ -14,15 +14,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "dev": "vite",
     "build": "vite build && tsc --emitDeclarationOnly",
-    "preview": "vite preview",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"demo/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"examples/**/*.ts\"",
     "test": "vitest",
     "prepublishOnly": "npm run build"
   },
@@ -63,7 +62,6 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",
     "vite": "^8.1.3",
-    "vite-plugin-cesium": "^1.2.23",
     "vitest": "^4.1.10"
   }
 }

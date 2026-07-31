@@ -4,12 +4,11 @@
 // Optimized Point Cloud) files stream in over HTTP range requests; load()
 // resolves once the initial hierarchy is fetched and the camera has finished
 // flying to the dataset (`autoFrame`, default true — see CopcDataSourceOptions
-// in ../src/types.ts for this and every other option, only a few of which
-// are used below).
+// for this and every other option, only a few of which are used below).
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
-import { CopcDataSource } from '../src/index';
-import type { CopcDataSourceOptions } from '../src/index';
+import { CopcDataSource } from 'copcesium';
+import type { CopcDataSourceOptions } from 'copcesium';
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN ?? '';
 

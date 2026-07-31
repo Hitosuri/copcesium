@@ -1,76 +1,37 @@
 import { defineConfig } from 'vite';
-import cesium from 'vite-plugin-cesium';
-import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { lazPerfWasmInlinePlugin } from './vite-plugins/lazPerfWasmInline';
 
-const LAZ_WASM = resolve(__dirname, 'node_modules/laz-perf/lib/web/laz-perf.wasm');
-
-/**
- * `worker.ts` needs `laz-perf.wasm` as a real same-origin file, not the
- * base64 `data:` URI Vite would otherwise inline it as. A `data:` URI has an
- * opaque origin, and errors thrown while instantiating/using the WASM module
- * loaded from one get muted by the browser (message/filename/error all come
- * back `undefined`) — that made a real decode failure undiagnosable (#B10).
- *
- * - dev:   middleware answers any request containing `laz-perf.wasm` with the
- *          real file, so `worker.ts`'s `new URL('laz-perf.wasm', import.meta.url)`
- *          resolves under `npm run dev` too.
- * - build: `generateBundle` emits it into `assets/`, next to the worker
- *          chunk, since `new URL('laz-perf.wasm', import.meta.url)` resolves
- *          relative to that chunk's own emitted location.
- */
-const lazPerfWasmPlugin = {
-  name: 'laz-perf-wasm',
-
-  configureServer(server) {
-    server.middlewares.use((req, res, next) => {
-      if (req.url.includes('laz-perf.wasm')) {
-        res.setHeader('Content-Type', 'application/wasm');
-        res.end(readFileSync(LAZ_WASM));
-        return;
-      }
-      next();
-    });
+// This config only builds the library (src/index.ts -> dist/). Example apps
+// under examples/ are standalone npm projects with their own vite config,
+// consuming the published `copcesium` package rather than this build.
+export default defineConfig({
+  plugins: [lazPerfWasmInlinePlugin()],
+  // worker.ts is imported as `./worker/worker.ts?worker&inline` in
+  // CopcDataSource.ts, so it's compiled and embedded as a Blob directly in
+  // this build's output rather than emitted as a separate chunk — a
+  // consumer's own bundler never sees a static import to trace, so it can't
+  // discover or copy an asset it doesn't know exists.
+  //
+  // Vite bundles worker entries via an isolated sub-build that does not
+  // inherit the top-level `plugins` array, so the virtual-module plugin has
+  // to be registered here too or `worker.ts`'s `virtual:laz-perf-wasm-base64`
+  // import fails to resolve during that sub-build.
+  worker: {
+    plugins: () => [lazPerfWasmInlinePlugin()],
   },
-
-  generateBundle() {
-    this.emitFile({
-      type: 'asset',
-      fileName: 'assets/laz-perf.wasm',
-      source: readFileSync(LAZ_WASM),
-    });
+  build: {
+    lib: {
+      entry: resolve(__dirname, 'src/index.ts'),
+      name: 'CopcCesium',
+      // CJS output is intentionally not built: dynamic Worker construction
+      // has no CJS equivalent that works the same way across bundlers. See
+      // issue #37.
+      formats: ['es'],
+      fileName: () => 'copc-cesium.mjs',
+    },
+    rollupOptions: {
+      external: ['cesium'],
+    },
   },
-};
-
-export default defineConfig(({ command }) => {
-  const isLibBuild = command === 'build';
-
-  return {
-    // Dev serves demo/index.html directly; the lib build's `root` stays the
-    // project root (its entry is src/index.ts, not an HTML file).
-    root: isLibBuild ? undefined : resolve(__dirname, 'demo'),
-    plugins: [lazPerfWasmPlugin, ...(isLibBuild ? [] : [cesium()])],
-    // worker.ts references `import.meta.url` (for the laz-perf.wasm URL
-    // above); that's only valid in ES module output, not Vite's default IIFE
-    // worker format.
-    worker: {
-      format: 'es',
-    },
-    build: {
-      lib: {
-        entry: resolve(__dirname, 'src/index.ts'),
-        name: 'CopcCesium',
-        // CJS output is intentionally not built: WorkerPool creates its Worker
-        // via `new URL('./worker/worker.ts', import.meta.url)`, and
-        // `import.meta.url` has no CJS equivalent — Rollup's CJS output
-        // silently rewrites it to `undefined`, so `new URL(...)` throws the
-        // moment a CJS consumer calls `CopcDataSource.load()`. See issue #37.
-        formats: ['es'],
-        fileName: () => 'copc-cesium.mjs',
-      },
-      rollupOptions: {
-        external: ['cesium'],
-      },
-    },
-  };
 });

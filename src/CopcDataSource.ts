@@ -12,6 +12,14 @@ import type { PointCloudPrimitive, Ref } from './renderer/PointCloudPrimitive';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
 import { NodeCache } from './cache/NodeCache';
+// Inlined into a Blob at build time (see vite.config.ts's `worker.format`)
+// instead of emitted as a separate chunk with a runtime-constructed URL — a
+// consumer's own bundler can't discover or copy an asset it never sees a
+// static import for, and a URL baked in at our build time either 404s (file
+// never shipped to the consumer's own output) or, once shipped, breaks under
+// any deploy path other than the site root. See issue on worker 404s in
+// consumer builds.
+import CopcWorker from './worker/worker.ts?worker&inline';
 
 export type { CopcDataSourceOptions };
 
@@ -117,9 +125,7 @@ export class CopcDataSource {
     const converter = resolved.proj !== 'EPSG:4326' ? proj4(resolved.proj, 'EPSG:4326') : null;
     const project = createProjector(converter, resolved.geoidOffset, resolved.zFactor);
 
-    const pool =
-      workerPool ??
-      new WorkerPool(() => new Worker(new URL('./worker/worker.ts', import.meta.url), { type: 'module' }), resolved.concurrency);
+    const pool = workerPool ?? new WorkerPool(() => new CopcWorker(), resolved.concurrency);
 
     const dataSource = new CopcDataSource(url, viewer, hierarchy, resolved, project, pool, !workerPool);
 
