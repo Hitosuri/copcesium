@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-07-31
+
+### Fixed
+
+- **`WorkerPool` could wedge or permanently fail after a bad worker.**
+  `run()` now rejects (and frees its worker/queue slot) if no response
+  arrives within `timeoutMs` (default 30s), so a hung Range Request or a
+  wasm decode that never returns no longer leaves that node stuck forever. A
+  worker that throws (`onerror`) is now terminated and replaced instead of
+  being returned to the pool, so a single crashed worker doesn't fail every
+  task subsequently routed to it; replacement is capped at 10 to avoid
+  spinning forever against a structurally broken worker. (#44)
+- **`selectNodes()` could drop visible nodes and hide populated subtrees.**
+  Traversal now expands the highest screen-space-error node first (a
+  max-heap keyed on SSE) instead of a FIFO queue, so when `maxVisibleNodes`
+  is hit, the nodes that survive are the most visually important ones found
+  so far rather than whatever order a pass happened to reach them in —
+  previously, minor camera movement during zoom could reshuffle traversal
+  order enough to drop a clearly-visible node from one pass to the next.
+  Nodes with zero points are no longer selected as leaves regardless of
+  SSE — they now always descend into their children if any exist, instead of
+  a mask potentially hiding a populated child subtree behind an empty
+  parent. (#45, #48)
+- **LoD transitions could leave a visible gap.** `_updateLoD()` no longer
+  hides a deselected node immediately; it now waits until the node's actual
+  replacement (children on subdivision, parent on merge) is cached and
+  shown before hiding it, keeping it visible and cache-pinned in the
+  meantime. A deselected node with no such replacement in the new selection
+  (e.g. it left the frustum) is still hidden immediately, as before. This
+  fixed a visible flash-to-empty during zoom, most noticeable looking
+  straight down at the data. (#58)
+
 ## [1.0.1] - 2026-07-31
 
 ### Fixed
