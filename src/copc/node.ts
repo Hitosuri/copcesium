@@ -4,6 +4,16 @@ export function getDepth(key: string): number {
 }
 
 /**
+ * Returns the parent key of a node key, or `null` for the root (depth 0).
+ * D-X-Y-Z → (D-1)-(X>>1)-(Y>>1)-(Z>>1)
+ */
+export function getParentKey(key: string): string | null {
+  const [d, x, y, z] = key.split('-').map(Number);
+  if (d === 0) return null;
+  return `${d - 1}-${x >> 1}-${y >> 1}-${z >> 1}`;
+}
+
+/**
  * Returns the 8 child keys of a node key.
  * D-X-Y-Z → (D+1)-(2X+dx)-(2Y+dy)-(2Z+dz), dx/dy/dz ∈ {0,1}
  */

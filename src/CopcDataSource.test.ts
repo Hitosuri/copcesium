@@ -348,6 +348,85 @@ describe('CopcDataSource update loop', () => {
     expect(removePrimitive).not.toHaveBeenCalled();
   });
 
+  it('keeps a node visible until its replacement children are ready, instead of leaving a gap (zoom in)', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData).mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const parentPrimitive = addPrimitive.mock.calls[0][0];
+    expect(parentPrimitive.show).toBe(true);
+
+    // Camera "zooms in": a child of '0-0-0-0' is selected instead of the
+    // parent. The child isn't cached yet (the worker hasn't resolved), so
+    // the parent must stay visible rather than leaving a gap.
+    selectNodesMock.mockReturnValue(['1-0-0-0']);
+    triggerUpdate();
+
+    expect(parentPrimitive.show).toBe(true);
+    expect(removePrimitive).not.toHaveBeenCalled();
+
+    // Once the child finishes loading (which itself calls requestRender(),
+    // triggering the next preRender in a real requestRenderMode viewer), the
+    // following LoD pass finally hides the parent.
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(2));
+    const childPrimitive = addPrimitive.mock.calls[1][0];
+    expect(childPrimitive.show).toBe(true);
+    triggerUpdate();
+    expect(parentPrimitive.show).toBe(false);
+  });
+
+  it('keeps children visible until the merged parent replacement is ready, instead of leaving a gap (zoom out)', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData).mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    selectNodesMock.mockReturnValue(['1-0-0-0']);
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const childPrimitive = addPrimitive.mock.calls[0][0];
+    expect(childPrimitive.show).toBe(true);
+
+    // Camera "zooms out": the parent '0-0-0-0' is selected instead of the
+    // child. The parent isn't cached (e.g. evicted earlier), so the child
+    // must stay visible rather than leaving a gap.
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    triggerUpdate();
+
+    expect(childPrimitive.show).toBe(true);
+    expect(removePrimitive).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(2));
+    const parentPrimitive = addPrimitive.mock.calls[1][0];
+    expect(parentPrimitive.show).toBe(true);
+    triggerUpdate();
+    expect(childPrimitive.show).toBe(false);
+  });
+
+  it('hides a deselected node immediately when nothing in the new selection replaces it (e.g. it left the frustum)', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValueOnce(renderData).mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, triggerUpdate } = makeFakeViewer();
+
+    selectNodesMock.mockReturnValue(['1-1-1-1']);
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const primitive = addPrimitive.mock.calls[0][0];
+    expect(primitive.show).toBe(true);
+
+    // '1-0-0-0' is a sibling, not a parent or child of '1-1-1-1' -- nothing
+    // in the new selection will visually cover '1-1-1-1''s absence.
+    selectNodesMock.mockReturnValue(['1-0-0-0']);
+    triggerUpdate();
+
+    expect(primitive.show).toBe(false);
+  });
+
   it('camera.moveEnd runs the LoD pass immediately, bypassing the debounce', async () => {
     mockCopc(undefined);
     workerPoolRun.mockResolvedValueOnce(renderData);

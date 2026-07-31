@@ -3,6 +3,7 @@ import proj4 from 'proj4';
 import type { Copc, Hierarchy } from 'copc';
 import type { CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
+import { getChildKeys, getParentKey } from './copc/node';
 import { detectCrs } from './crs/detectCrs';
 import { createProjector } from './crs/project';
 import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './lod/boundingVolume';
@@ -214,8 +215,12 @@ export class CopcDataSource {
 
   /** Expensive: BFS reselection, then reconciles the render set (`show`)
    *  against it and dispatches loads for anything newly selected but not yet
-   *  cached. Cached-but-deselected nodes are hidden, not removed — eviction
-   *  (and the actual scene removal that comes with it) stays NodeCache's job. */
+   *  cached. A node dropping out of the selection is hidden only once its
+   *  replacement (children, on subdivision, or the parent, on merge) is
+   *  actually ready to show — otherwise it stays visible and pinned, so a
+   *  LoD transition never leaves a visible gap where neither the old nor the
+   *  new detail level is on screen. Nodes are only ever removed from the
+   *  scene by NodeCache's own LRU eviction, never by this reconciliation. */
   private async _updateLoD(): Promise<void> {
     if (this._destroyed) return;
     if (this._isUpdating) {
@@ -235,20 +240,10 @@ export class CopcDataSource {
         }),
       );
 
-      this._nodeCache.pin(newSelectedKeys);
       let sceneChanged = false;
 
-      for (const key of this._selectedKeys) {
-        if (newSelectedKeys.has(key)) continue;
-        const node = this._nodeCache.peek(key);
-        if (!node) continue;
-        const primitive = node.primitive as PointCloudPrimitive;
-        if (primitive.show) {
-          primitive.show = false;
-          sceneChanged = true;
-        }
-      }
-
+      // Show/load the new selection first, so a just-arrived replacement
+      // already counts as "ready" when the hide pass below checks for it.
       for (const key of newSelectedKeys) {
         const node = this._nodeCache.peek(key);
         if (node) {
@@ -263,7 +258,24 @@ export class CopcDataSource {
         void this._loadNode(key);
       }
 
-      this._selectedKeys = newSelectedKeys;
+      const stillShown = new Set(newSelectedKeys);
+      for (const key of this._selectedKeys) {
+        if (newSelectedKeys.has(key)) continue;
+        const node = this._nodeCache.peek(key);
+        if (!node) continue;
+        const primitive = node.primitive as PointCloudPrimitive;
+        if (!primitive.show) continue;
+
+        if (this._isReplacementReady(key, newSelectedKeys)) {
+          primitive.show = false;
+          sceneChanged = true;
+        } else {
+          stillShown.add(key); // keep it visible; re-checked again next pass
+        }
+      }
+
+      this._nodeCache.pin(stillShown);
+      this._selectedKeys = stillShown;
       if (sceneChanged) this._viewer.scene.requestRender();
     } finally {
       this._isUpdating = false;
@@ -272,6 +284,26 @@ export class CopcDataSource {
         void this._updateLoD();
       }
     }
+  }
+
+  /** A deselected node's replacement is its children (subdivision) or its
+   *  parent (merge) — whichever of those the new selection actually
+   *  contains. Ready once every such relevant replacement is cached and
+   *  shown; a node with neither relationship in the new selection (e.g. it
+   *  simply left the frustum) has nothing that would cover its absence
+   *  anyway, so it's treated as immediately ready. */
+  private _isReplacementReady(key: string, newSelectedKeys: Set<string>): boolean {
+    const candidates = getChildKeys(key);
+    const parentKey = getParentKey(key);
+    if (parentKey) candidates.push(parentKey);
+
+    const relevant = candidates.filter((candidate) => newSelectedKeys.has(candidate));
+    if (relevant.length === 0) return true;
+
+    return relevant.every((candidate) => {
+      const node = this._nodeCache.peek(candidate);
+      return !!node && (node.primitive as PointCloudPrimitive).show;
+    });
   }
 
   private async _loadNode(key: string): Promise<void> {
