@@ -1,0 +1,39 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # required for npm's OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing (OIDC) requires npm >=11.5.1; setup-node's bundled
+      # npm may be older, so pin an explicit floor here rather than trusting
+      # whatever ships with the node-version above.
+      - run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run lint
+
+      # npm run build also runs via this package's own `prepublishOnly`
+      # script, but running it here too lets the job fail before the
+      # publish step if the build itself is broken.
+      - run: npm run build
+
+      - run: npm publish --provenance --access public
