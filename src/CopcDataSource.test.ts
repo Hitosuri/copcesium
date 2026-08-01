@@ -407,6 +407,60 @@ describe('CopcDataSource update loop', () => {
     expect(childPrimitive.show).toBe(false);
   });
 
+  it('keeps a node visible when the selection jumps straight to its grandchild (fast zoom in)', async () => {
+    // Regression test for #66: one mouse wheel notch is worth roughly 1-1.5
+    // levels of screen-space error and debounceMs collapses several notches
+    // into one LoD pass, so a cut that moves two levels at once is the normal
+    // case, not an edge case. A grandchild covers the outgoing node's area
+    // just as a direct child does, so the same "wait for the replacement"
+    // rule has to apply.
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValue(renderData);
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const rootPrimitive = addPrimitive.mock.calls[0][0];
+    expect(rootPrimitive.show).toBe(true);
+
+    selectNodesMock.mockReturnValue(['2-0-0-0']);
+    triggerUpdate();
+
+    expect(rootPrimitive.show).toBe(true);
+    expect(removePrimitive).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(2));
+    expect(addPrimitive.mock.calls[1][0].show).toBe(true);
+    triggerUpdate();
+    expect(rootPrimitive.show).toBe(false);
+  });
+
+  it('keeps a node visible when the selection jumps straight to its grandparent (fast zoom out)', async () => {
+    mockCopc(undefined);
+    workerPoolRun.mockResolvedValue(renderData);
+    const { viewer, addPrimitive, removePrimitive, triggerUpdate } = makeFakeViewer();
+
+    selectNodesMock.mockReturnValue(['2-0-0-0']);
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+    const deepPrimitive = addPrimitive.mock.calls[0][0];
+    expect(deepPrimitive.show).toBe(true);
+
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    triggerUpdate();
+
+    expect(deepPrimitive.show).toBe(true);
+    expect(removePrimitive).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(2));
+    expect(addPrimitive.mock.calls[1][0].show).toBe(true);
+    triggerUpdate();
+    expect(deepPrimitive.show).toBe(false);
+  });
+
   it('hides a deselected node immediately when nothing in the new selection replaces it (e.g. it left the frustum)', async () => {
     mockCopc(undefined);
     workerPoolRun.mockResolvedValueOnce(renderData).mockResolvedValueOnce(renderData);
