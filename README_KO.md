@@ -15,15 +15,16 @@
 - **실시간 조정:** `pixelSize`, `sseThreshold`를 실행 중인 데이터소스에서 재로드 없이 바로 조정할 수 있습니다.
 - **진짜 plug-and-play:** 배포된 패키지는 자기 완결적인 `.mjs` 파일 하나입니다 — Worker와 `laz-perf` WASM 모듈이 빌드 시점에 완전히 인라인되어, 번들러가 놓칠 수 있는 별도 에셋이 없습니다.
 
+> 📖 **자세한 문서는 [위키](https://github.com/Jangmyun/copcesium/wiki)에 있습니다:** [Architecture](https://github.com/Jangmyun/copcesium/wiki/Architecture) · [Options & Tuning](https://github.com/Jangmyun/copcesium/wiki/Options-and-Tuning) · [Coordinate Systems](https://github.com/Jangmyun/copcesium/wiki/Coordinate-Systems) · [Converting to COPC](https://github.com/Jangmyun/copcesium/wiki/Converting-to-COPC) · [Troubleshooting](https://github.com/Jangmyun/copcesium/wiki/Troubleshooting). (위키는 영어로 제공됩니다.) 이 README는 빠른 참조용입니다.
+
 ## 목차
 
 - [설치](#설치)
 - [빠른 시작](#빠른-시작)
 - [옵션](#옵션)
 - [API 레퍼런스](#api-레퍼런스)
-- [Worker / WASM 번들링](#worker--wasm-번들링)
 - [요구사항: HTTP Range Request와 CORS](#요구사항-http-range-request와-cors)
-- [지원 좌표계](#지원-좌표계)
+- [좌표계](#좌표계)
 - [예제](#예제)
 - [Credits](#credits)
 - [라이선스](#라이선스)
@@ -34,7 +35,7 @@
 npm install copcesium cesium
 ```
 
-`cesium`은 peer dependency(`>=1.100.0`)입니다 — 이미 프로젝트에서 쓰고 있는 버전을 그대로 설치하면 됩니다. copcesium은 ESM 전용 패키지로 배포됩니다(이유는 [Worker / WASM 번들링](#worker--wasm-번들링) 참고).
+`cesium`은 peer dependency(`>=1.100.0`)입니다 — 이미 프로젝트에서 쓰고 있는 버전을 그대로 설치하면 됩니다. copcesium은 **ESM 전용**입니다(CommonJS 빌드 없음). Worker와 `laz-perf` WASM이 빌드 시점에 단일 `.mjs`로 인라인되는데, 이때 `require()`가 제공하지 못하는 `import.meta.url` 시맨틱이 필요하기 때문입니다.
 
 ## 빠른 시작
 
@@ -115,7 +116,7 @@ interface CopcDataSourceOptions {
 - `url: string` — `.copc.laz` 파일 URL. HTTP Range Request를 지원해야 합니다(아래 참고).
 - `viewer: Cesium.Viewer`
 - `options?: CopcDataSourceOptions` — [옵션](#옵션) 참고.
-- `workerPool?: WorkerPool` — 외부에서 만든 풀을 내부 생성 대신 재사용합니다. 현재의 한계는 [WorkerPool 공유하기](#workerpool-공유하기) 참고.
+- `workerPool?: WorkerPool` — 데이터소스 간 풀 재사용을 위한 예약 인자이지만, 아직 패키지 밖에서는 사용할 수 없습니다([이슈 #51](https://github.com/Jangmyun/copcesium/issues/51)). 넘기지 마세요 — `load()`마다 `concurrency` 크기의 자체 풀을 받습니다.
 
 ### 인스턴스 멤버
 
@@ -141,30 +142,6 @@ class CopcDataSource {
 | `zoomTo()` | 카메라를 데이터셋의 루트 bounding sphere로 비행시킵니다. `autoFrame`이 켜져 있으면 `load()`가 내부적으로 호출하며, 나중에 다시 프레이밍하고 싶으면 직접 호출하면 됩니다. |
 | `destroy()` | Worker 풀(외부에서 주입된 게 아니라면)과 노드 캐시, 로드된 모든 프리미티브를 정리합니다. 여러 번 호출해도 안전합니다. |
 
-### `WorkerPool` 공유하기
-
-`load()`의 네 번째 인자는 외부에서 생성한 `WorkerPool`을 받을 수 있어서, 원칙적으로는 여러 `CopcDataSource` 인스턴스나 재로드 사이에 같은 Worker 풀을 재사용해서 매번 새로 만들고(wasm도 재컴파일하고) 하지 않아도 됩니다:
-
-```ts
-import { CopcDataSource, WorkerPool } from 'copcesium';
-
-const pool = new WorkerPool(workerFactory, 5); // 아래 참고
-const a = await CopcDataSource.load(urlA, viewer, {}, pool);
-const b = await CopcDataSource.load(urlB, viewer, {}, pool);
-
-// 외부에서 주입된 풀이 있는 데이터소스의 destroy()는 그 풀을 정리하지 않습니다 —
-// 더 이상 필요 없어지면 풀은 직접 정리해야 합니다:
-pool.destroy();
-```
-
-> **알려진 한계:** `workerFactory`는 copcesium 내부의 노드 디코딩 프로토콜을 구사하는 Worker를 만들어야 하는데, 그 Worker는 `CopcDataSource` 자신의 모듈 안에 빌드 시점에 직접 컴파일되어 들어가고(`?worker&inline`) export되지 않습니다 — 그래서 현재는 패키지 밖에서 호환되는 `workerFactory`를 만들 방법이 없습니다. [이슈 #51](https://github.com/Jangmyun/copcesium/issues/51)에서 진행 상황을 확인하세요. 해결되기 전까지는 `workerPool`을 넘기지 마세요 — `load()`를 풀 없이 호출하면 `concurrency`로 크기가 정해진 자체 풀을 받는데, 이게 현재 유일하게 지원되는 경로입니다.
-
-## Worker / WASM 번들링
-
-포인트 디코딩(LAZ 압축 해제는 [`laz-perf`](https://github.com/hobuinc/laz-perf), 좌표 변환)은 Worker 안에서 실행됩니다. Worker 코드 자체와 `laz-perf` WASM 바이너리가 빌드 시점에 배포용 `dist/copc-cesium.mjs` 안에 직접 컴파일·임베드되어 — 별도 워커 청크도, 소비자의 번들러가 놓칠 수 있는 `dist/assets/` 디렉터리도 없습니다. `laz-perf.wasm`은 원시 바이트로 임베드되어 `LazPerf.create({ wasmBinary })`에 바로 전달되며, WASM 로더 자체의 fetch 경로를 완전히 우회합니다 — 그래서 copcesium을 가져다 쓰는 앱이 어디에 배포되든 전혀 영향을 받지 않습니다.
-
-copcesium은 ESM 전용으로 배포됩니다(CommonJS 빌드 없음) — 인라인된 Worker를 생성하려면 `require()`에 대응하는 방법이 없는 `import.meta.url` 시맨틱이 필요하기 때문입니다.
-
 ## 요구사항: HTTP Range Request와 CORS
 
 copcesium은 필요한 바이트만(COPC 헤더, 계층 구조 페이지, 개별 노드의 포인트 데이터) HTTP Range Request로 가져오며, 파일 전체를 받지 않습니다. `.copc.laz` 파일을 어디에 호스팅하든, 서버는 다음을 지원해야 합니다:
@@ -172,9 +149,13 @@ copcesium은 필요한 바이트만(COPC 헤더, 계층 구조 페이지, 개별
 - `Range` 요청 헤더를 지원하고 `206 Partial Content`로 응답 (Amazon S3, 대부분의 정적 호스팅·CDN은 기본 지원).
 - CORS 헤더(`Access-Control-Allow-Origin`)로 앱의 origin을 허용 — 파일이 앱과 같은 origin에서 서빙되는 게 아니라면 이 요청들은 cross-origin `fetch()`이기 때문입니다.
 
-## 지원 좌표계
+CORS, Range Request, 좌표가 엉뚱한 위치에 찍히는 문제는 [Troubleshooting](https://github.com/Jangmyun/copcesium/wiki/Troubleshooting) 위키 페이지를 참고하세요.
 
-`CopcDataSource`는 COPC 파일의 WKT VLR이 있으면 원본 CRS와 단위 변환 계수를 자동 감지합니다 — 수평/수직이 따로 정의된 복합 CRS(예: feet 단위 State Plane + NAVD88 수직 기준면)도 포함합니다. [proj4](https://github.com/proj4js/proj4js) 자체의 WKT 파싱이 특정 파일의 WKT 방언을 인식하지 못할 때를 대비한 작은 내장 EPSG 조회 테이블도 폴백으로 있습니다([`src/crs/projections.ts`](./src/crs/projections.ts) 참고). 자동 감지가 실패하거나 직접 오버라이드해야 한다면 `proj`/`projDef`를 명시적으로 넘기면 됩니다([옵션](#옵션) 참고) — 이때도 자동 감지된 `zFactor`/`xyFactor`는 그대로 적용됩니다. 복합 CRS의 수직 단위는 오버라이드하는 수평 CRS와 다를 수 있기 때문입니다.
+## 좌표계
+
+`CopcDataSource`는 COPC 파일의 WKT VLR이 있으면 원본 CRS와 단위 변환 계수를 자동 감지합니다 — 수평/수직이 따로 정의된 복합 CRS(예: feet 단위 State Plane + NAVD88 수직 기준면)도 포함합니다. 자동 감지가 실패하거나 직접 오버라이드해야 한다면 `proj`/`projDef`를 명시적으로 넘기면 됩니다([옵션](#옵션) 참고).
+
+감지 흐름, proj4 폴백 테이블, 수직 단위(`zFactor`) 처리, 좌표 디버깅 체크리스트 등 자세한 내용은 [Coordinate Systems](https://github.com/Jangmyun/copcesium/wiki/Coordinate-Systems) 위키 페이지에 있습니다.
 
 ## 예제
 
