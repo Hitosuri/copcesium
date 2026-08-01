@@ -15,15 +15,16 @@ CesiumJS provider for real-time [COPC](https://copc.io/) (Cloud Optimized Point 
 - **Live-tunable:** `pixelSize` and `sseThreshold` can be adjusted on a running data source with no reload.
 - **Genuinely drop-in:** the published package is a single self-contained `.mjs` file — the Worker and its `laz-perf` WASM module are compiled inline at build time, so there's no separate asset for your bundler to lose track of.
 
+> 📖 **In-depth documentation lives in the [wiki](https://github.com/Jangmyun/copcesium/wiki):** [Architecture](https://github.com/Jangmyun/copcesium/wiki/Architecture) · [Options & Tuning](https://github.com/Jangmyun/copcesium/wiki/Options-and-Tuning) · [Coordinate Systems](https://github.com/Jangmyun/copcesium/wiki/Coordinate-Systems) · [Converting to COPC](https://github.com/Jangmyun/copcesium/wiki/Converting-to-COPC) · [Troubleshooting](https://github.com/Jangmyun/copcesium/wiki/Troubleshooting). This README is the quick reference.
+
 ## Table of contents
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Options](#options)
 - [API reference](#api-reference)
-- [Worker / WASM bundling](#worker--wasm-bundling)
 - [Requirements: HTTP Range Requests and CORS](#requirements-http-range-requests-and-cors)
-- [Supported coordinate systems](#supported-coordinate-systems)
+- [Coordinate systems](#coordinate-systems)
 - [Example](#example)
 - [Credits](#credits)
 - [License](#license)
@@ -34,7 +35,7 @@ CesiumJS provider for real-time [COPC](https://copc.io/) (Cloud Optimized Point 
 npm install copcesium cesium
 ```
 
-`cesium` is a peer dependency (`>=1.100.0`) — install whichever version your app already uses. copcesium ships as an ESM-only package (see [Worker / WASM bundling](#worker--wasm-bundling) for why).
+`cesium` is a peer dependency (`>=1.100.0`) — install whichever version your app already uses. copcesium is **ESM-only** (no CommonJS build): the Worker and its `laz-perf` WASM are inlined into a single `.mjs` at build time, which needs `import.meta.url` semantics that `require()` can't provide.
 
 ## Quick start
 
@@ -115,7 +116,7 @@ Static factory — `CopcDataSource` has no public constructor. Resolves once the
 - `url: string` — URL of the `.copc.laz` file. Must support HTTP Range Requests (see below).
 - `viewer: Cesium.Viewer`
 - `options?: CopcDataSourceOptions` — see [Options](#options).
-- `workerPool?: WorkerPool` — an externally-owned pool, reused instead of an internally-created one. See [Sharing a WorkerPool](#sharing-a-workerpool) for its current limitation.
+- `workerPool?: WorkerPool` — reserved for reusing a pool across data sources, but not yet usable from outside the package ([issue #51](https://github.com/Jangmyun/copcesium/issues/51)). Omit it; each `load()` gets its own pool sized by `concurrency`.
 
 ### Instance members
 
@@ -141,30 +142,6 @@ class CopcDataSource {
 | `zoomTo()` | Flies the camera to the dataset's root bounding sphere. Called internally by `load()` when `autoFrame` is enabled; call it again yourself to re-frame later. |
 | `destroy()` | Tears down the Worker pool (unless it was externally provided), the node cache, and every loaded primitive. Idempotent. |
 
-### Sharing a `WorkerPool`
-
-`load()`'s fourth argument accepts an externally-constructed `WorkerPool`, so the same pool of Workers can in principle be reused across multiple `CopcDataSource` instances or reloads instead of spinning up (and WASM-recompiling) a fresh one each time:
-
-```ts
-import { CopcDataSource, WorkerPool } from 'copcesium';
-
-const pool = new WorkerPool(workerFactory, 5); // see note below
-const a = await CopcDataSource.load(urlA, viewer, {}, pool);
-const b = await CopcDataSource.load(urlB, viewer, {}, pool);
-
-// destroy() on a data source given an external pool never tears the pool
-// down — dispose of the pool yourself once nothing needs it anymore:
-pool.destroy();
-```
-
-> **Known limitation:** `workerFactory` must construct a Worker that speaks copcesium's internal node-decoding protocol, but that Worker is compiled directly into `CopcDataSource`'s own module at build time (`?worker&inline`) and is not exported — there is currently no supported way to build a compatible `workerFactory` from outside the package. Track [issue #51](https://github.com/Jangmyun/copcesium/issues/51). Until it lands, don't pass a `workerPool` — every `load()` call without one gets its own pool sized by `concurrency`, which is the only supported path today.
-
-## Worker / WASM bundling
-
-Point decoding (LAZ decompression via [`laz-perf`](https://github.com/hobuinc/laz-perf), coordinate transforms) runs in a Worker. Both the Worker's own code and the `laz-perf` WASM binary are compiled and embedded directly into the published `dist/copc-cesium.mjs` at build time — there is no separate worker chunk and no `dist/assets/` directory for a consumer's bundler to lose track of. `laz-perf.wasm` is embedded as raw bytes and handed to `LazPerf.create({ wasmBinary })`, bypassing the WASM loader's own fetch path entirely, so nothing here depends on where the app that imports copcesium happens to be deployed.
-
-copcesium ships ESM-only — there is no CommonJS build — because constructing the inlined Worker requires `import.meta.url` semantics that have no equivalent under `require()`.
-
 ## Requirements: HTTP Range Requests and CORS
 
 copcesium fetches only the bytes it needs (COPC header, hierarchy pages, individual node point data) via HTTP Range Requests, not the whole file. Wherever you host `.copc.laz` files, the server must:
@@ -172,9 +149,13 @@ copcesium fetches only the bytes it needs (COPC header, hierarchy pages, individ
 - Support `Range` request headers and respond with `206 Partial Content` (Amazon S3, most static hosts, and CDNs do this by default).
 - Send CORS headers (`Access-Control-Allow-Origin`) permitting your app's origin, since these are cross-origin `fetch()` calls unless the file is served from the same origin as your app.
 
-## Supported coordinate systems
+For CORS, Range Request, and misplaced-cloud problems, see the [Troubleshooting](https://github.com/Jangmyun/copcesium/wiki/Troubleshooting) wiki page.
 
-`CopcDataSource` auto-detects the source CRS and unit conversion factors from the COPC file's WKT VLR when present, including compound CRSes (separate horizontal + vertical definitions, e.g. a state-plane CRS in feet with a NAVD88 vertical datum). A small built-in EPSG lookup table (see [`src/crs/projections.ts`](./src/crs/projections.ts)) covers common CRSes as a fallback when [proj4](https://github.com/proj4js/proj4js)'s own WKT parsing doesn't recognize a file's specific dialect. If detection fails or you need to override it, pass `proj`/`projDef` explicitly (see [Options](#options)) — auto-detected `zFactor`/`xyFactor` still apply on top of an explicit `proj`/`projDef`, since a compound CRS's vertical unit can differ from the CRS you're overriding with.
+## Coordinate systems
+
+`CopcDataSource` auto-detects the source CRS and unit-conversion factors from the COPC file's WKT VLR when present — including compound CRSes (separate horizontal + vertical definitions, e.g. a state-plane CRS in feet with a NAVD88 vertical datum). If detection fails or you need to override it, pass `proj`/`projDef` explicitly (see [Options](#options)).
+
+Full details — the detection flow, the proj4 fallback table, vertical-unit (`zFactor`) handling, and a coordinate-debugging checklist — are on the [Coordinate Systems](https://github.com/Jangmyun/copcesium/wiki/Coordinate-Systems) wiki page.
 
 ## Example
 
