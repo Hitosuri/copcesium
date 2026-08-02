@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "cesium": "^1.143.0",
-    "copcesium": "^1.0.1"
+    "copcesium": "^1.0.2"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
