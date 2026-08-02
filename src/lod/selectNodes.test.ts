@@ -80,7 +80,10 @@ describe('selectNodes', () => {
     expect(selected).toEqual(['0-0-0-0']);
   });
 
-  it('expands into the 8 children when close enough that the root SSE exceeds the threshold', () => {
+  it('keeps the root alongside its 8 children when the root SSE exceeds the threshold', () => {
+    // Regression test for #76: a COPC octree stores each point in exactly one
+    // node, so the root's points are not a coarse copy of the children's —
+    // dropping the root once it expands throws those points away for good.
     const nodes = makeOneLevelOctree();
     const camera = makeCamera(
       new Cesium.Cartesian3(0, 0, 30),
@@ -97,10 +100,11 @@ describe('selectNodes', () => {
       maxVisibleNodes: 100,
     });
 
-    expect(selected).toHaveLength(8);
-    expect(selected).not.toContain('0-0-0-0');
+    expect(selected).toHaveLength(9);
+    expect(selected).toContain('0-0-0-0');
     expect(new Set(selected)).toEqual(
       new Set([
+        '0-0-0-0',
         '1-0-0-0',
         '1-0-0-1',
         '1-0-1-0',
@@ -111,6 +115,30 @@ describe('selectNodes', () => {
         '1-1-1-1',
       ]),
     );
+  });
+
+  it('selects an ancestor before any of its descendants, so the budget only ever cuts depth', () => {
+    const nodes = makeOneLevelOctree();
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 30),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+    });
+
+    // A parent is popped (and selected) before its children are ever pushed,
+    // so no descendant can appear without the ancestors it draws on top of.
+    for (const key of selected) {
+      if (key !== '0-0-0-0') expect(selected.indexOf('0-0-0-0')).toBeLessThan(selected.indexOf(key));
+    }
   });
 
   it('selects the root instead of expanding when none of its children have data', () => {
@@ -198,11 +226,14 @@ describe('selectNodes', () => {
       maxVisibleNodes: 4,
     });
 
-    // Children at z=+5 (zi=1) sit closer to the camera at z=30 than children
-    // at z=-5 (zi=0), so they have a higher screen-space error and must win
-    // the budget over the farther half — a priority-ordered traversal keeps
-    // them regardless of which order they were enqueued in.
-    expect(new Set(selected)).toEqual(new Set(['1-0-0-1', '1-0-1-1', '1-1-0-1', '1-1-1-1']));
+    // The root is popped first and always makes the cut, so it takes one slot.
+    // Of the children, those at z=+5 (zi=1) sit closer to the camera at z=30
+    // than those at z=-5 (zi=0), so they have a higher screen-space error and
+    // win the remaining three slots over the farther half — a priority-ordered
+    // traversal keeps them regardless of which order they were enqueued in.
+    expect(selected[0]).toBe('0-0-0-0');
+    expect(selected.slice(1).every((key) => key.endsWith('-1'))).toBe(true);
+    expect(selected).toHaveLength(4);
   });
 
   it('stops the traversal once maxVisibleNodes is reached', () => {
