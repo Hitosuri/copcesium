@@ -3,7 +3,7 @@ import proj4 from 'proj4';
 import type { Copc, Hierarchy } from 'copc';
 import type { CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
-import { getChildKeys, getParentKey } from './copc/node';
+import { isAncestorOf } from './copc/node';
 import { detectCrs } from './crs/detectCrs';
 import { createProjector } from './crs/project';
 import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './lod/boundingVolume';
@@ -286,18 +286,22 @@ export class CopcDataSource {
     }
   }
 
-  /** A deselected node's replacement is its children (subdivision) or its
-   *  parent (merge) — whichever of those the new selection actually
-   *  contains. Ready once every such relevant replacement is cached and
-   *  shown; a node with neither relationship in the new selection (e.g. it
-   *  simply left the frustum) has nothing that would cover its absence
-   *  anyway, so it's treated as immediately ready. */
+  /** A deselected node's replacement is whatever in the new selection covers
+   *  the same volume: its descendants (subdivision) or an ancestor (merge).
+   *  The match is by containment at *any* depth, not just one level — a
+   *  single LoD pass routinely moves the cut two or more levels (one mouse
+   *  wheel notch is worth roughly 1-1.5 levels of screen-space error, and
+   *  `debounceMs` collapses several notches into one pass), and a
+   *  grandchild/grandparent covers the outgoing node's area just as a direct
+   *  child/parent does. Ready once every such relevant replacement is cached
+   *  and shown; a node with neither relationship in the new selection (e.g. a
+   *  sibling-only change, or it simply left the frustum) has nothing that
+   *  would cover its absence anyway, so it's treated as immediately ready. */
   private _isReplacementReady(key: string, newSelectedKeys: Set<string>): boolean {
-    const candidates = getChildKeys(key);
-    const parentKey = getParentKey(key);
-    if (parentKey) candidates.push(parentKey);
-
-    const relevant = candidates.filter((candidate) => newSelectedKeys.has(candidate));
+    const relevant: string[] = [];
+    for (const candidate of newSelectedKeys) {
+      if (isAncestorOf(key, candidate) || isAncestorOf(candidate, key)) relevant.push(candidate);
+    }
     if (relevant.length === 0) return true;
 
     return relevant.every((candidate) => {

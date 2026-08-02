@@ -14,6 +14,19 @@ export function getParentKey(key: string): string | null {
 }
 
 /**
+ * True when `ancestorKey` is a proper ancestor of `key` — `key`'s cell lies
+ * inside `ancestorKey`'s cell, at any depth below it. Shifting `key`'s indices
+ * right by the depth difference yields its ancestor's indices at that depth.
+ */
+export function isAncestorOf(ancestorKey: string, key: string): boolean {
+  const [ad, ax, ay, az] = ancestorKey.split('-').map(Number);
+  const [d, x, y, z] = key.split('-').map(Number);
+  const shift = d - ad;
+  if (shift <= 0) return false;
+  return x >> shift === ax && y >> shift === ay && z >> shift === az;
+}
+
+/**
  * Returns the 8 child keys of a node key.
  * D-X-Y-Z → (D+1)-(2X+dx)-(2Y+dy)-(2Z+dz), dx/dy/dz ∈ {0,1}
  */
