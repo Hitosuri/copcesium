@@ -9,6 +9,7 @@ import proj4 from 'proj4';
 import type { WorkerRequest, WorkerResponse } from './WorkerPool';
 import type { NodeConversionPayload } from './messages';
 import type { NodeRenderData } from '../types';
+import { CLASSIFICATION_COLORS, DEFAULT_CLASS_COLOR } from '../style/classificationColors';
 // laz-perf.wasm, embedded as base64 by vite-plugins/lazPerfWasmInline.ts — see
 // getLazPerf() below for why this worker can't fetch it as a sibling file.
 import lazPerfWasmBase64 from 'virtual:laz-perf-wasm-base64';
@@ -39,19 +40,6 @@ export function lonLatAltToEcef(lonDeg: number, latDeg: number, altM: number): [
   ];
 }
 
-// Fallback color when a node has RGB (checked first, elsewhere) — ASPRS
-// standard LAS classification codes for the entries this table covers.
-const CLASSIFICATION_COLORS: Record<number, [number, number, number]> = {
-  2: [153, 111, 66], // Ground
-  3: [90, 156, 68], // Low Vegetation
-  4: [70, 133, 53], // Medium Vegetation
-  5: [50, 110, 38], // High Vegetation
-  6: [219, 141, 51], // Building
-  9: [59, 121, 191], // Water
-  10: [140, 140, 140], // Rail
-  11: [100, 100, 100], // Road Surface
-};
-const DEFAULT_CLASS_COLOR: [number, number, number] = [190, 190, 190];
 const FLAT_COLOR: [number, number, number] = [200, 200, 200];
 
 function clamp255(v: number): number {
@@ -102,7 +90,7 @@ function tryGetter(view: View, name: string): View.Getter | undefined {
  * lod/boundingVolume.ts (#13), so neither is duplicated here.
  */
 export async function convertNode(payload: NodeConversionPayload): Promise<NodeRenderData> {
-  const { url, copc, node, proj, projDef, geoidOffset, zFactor } = payload;
+  const { url, copc, node, proj, projDef, geoidOffset, zFactor, zMin, zMax } = payload;
 
   const lazPerf = await getLazPerf();
   const view = await Copc.loadPointDataView(url, copc, node, { lazPerf });
@@ -119,7 +107,10 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
   const getG = tryGetter(view, 'Green');
   const getB = tryGetter(view, 'Blue');
   const hasRGB = !!(getR && getG && getB);
-  const getCls = hasRGB ? undefined : tryGetter(view, 'Classification');
+  // Read unconditionally now — Classification is shipped as its own attribute
+  // for the styling API, not just consumed by the no-RGB colour fallback.
+  const getCls = tryGetter(view, 'Classification');
+  const getIntensity = tryGetter(view, 'Intensity');
 
   if (proj !== 'EPSG:4326' && projDef && !registeredProjs.has(proj)) {
     proj4.defs(proj, projDef);
@@ -146,6 +137,15 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
 
   const positions = new Float64Array(n * 3);
   const colors = new Uint8Array(n * 4);
+  const intensities = new Uint16Array(n);
+  const classifications = new Uint8Array(n);
+  const elevations = new Uint16Array(n);
+  let maxIntensity = 0;
+
+  // A flat dataset (or a header that reports one) leaves every point at the
+  // bottom of the ramp rather than dividing by zero.
+  const zSpan = zMax - zMin;
+  const zScale = zSpan > 0 ? 65535 / zSpan : 0;
 
   for (let i = 0; i < n; i++) {
     const x = getX(i);
@@ -171,13 +171,24 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     positions[i3 + 1] = ecefY;
     positions[i3 + 2] = ecefZ;
 
+    const cls = getCls ? getCls(i) & 0xff : 0;
+    classifications[i] = cls;
+
+    if (getIntensity) {
+      const raw = Math.max(0, Math.min(65535, Math.round(getIntensity(i))));
+      intensities[i] = raw;
+      if (raw > maxIntensity) maxIntensity = raw;
+    }
+
+    elevations[i] = Math.max(0, Math.min(65535, Math.round((z - zMin) * zScale)));
+
     const i4 = i * 4;
     if (hasRGB) {
       colors[i4] = clamp255((getR!(i) / colorScale) * 255);
       colors[i4 + 1] = clamp255((getG!(i) / colorScale) * 255);
       colors[i4 + 2] = clamp255((getB!(i) / colorScale) * 255);
     } else if (getCls) {
-      const [r, g, b] = CLASSIFICATION_COLORS[getCls(i) & 0xff] ?? DEFAULT_CLASS_COLOR;
+      const [r, g, b] = CLASSIFICATION_COLORS[cls] ?? DEFAULT_CLASS_COLOR;
       colors[i4] = r;
       colors[i4 + 1] = g;
       colors[i4 + 2] = b;
@@ -189,14 +200,20 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     colors[i4 + 3] = 255;
   }
 
-  return { positions, colors, pointCount: n };
+  return { positions, colors, intensities, classifications, elevations, pointCount: n, maxIntensity };
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   const { id, payload } = e.data;
   try {
     const result = await convertNode(payload as NodeConversionPayload);
-    postMessage({ id, result } satisfies WorkerResponse, [result.positions.buffer, result.colors.buffer]);
+    postMessage({ id, result } satisfies WorkerResponse, [
+      result.positions.buffer,
+      result.colors.buffer,
+      result.intensities.buffer,
+      result.classifications.buffer,
+      result.elevations.buffer,
+    ]);
   } catch (err) {
     const error = err as Error;
     postMessage({ id, error: { name: error.name, message: error.message } } satisfies WorkerResponse);

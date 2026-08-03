@@ -1,5 +1,5 @@
 import type * as Cesium from 'cesium';
-import { PointCloudPrimitive, type Ref } from '../renderer/PointCloudPrimitive';
+import { PointCloudPrimitive, type PointStyle } from '../renderer/PointCloudPrimitive';
 import type { NodeRenderData } from '../types';
 
 /**
@@ -12,7 +12,7 @@ import type { NodeRenderData } from '../types';
 export async function createNodePrimitive(
   renderData: NodeRenderData,
   boundingSphere: Cesium.BoundingSphere,
-  pixelSizeRef: Ref<number>,
+  style: PointStyle,
 ): Promise<PointCloudPrimitive> {
-  return new PointCloudPrimitive(renderData, boundingSphere, pixelSizeRef);
+  return new PointCloudPrimitive(renderData, boundingSphere, style);
 }

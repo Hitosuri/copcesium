@@ -12,7 +12,7 @@ CesiumJS provider for real-time [COPC](https://copc.io/) (Cloud Optimized Point 
 - **Off the main thread:** LAZ decompression and coordinate transforms run in a pool of reused Web Workers, so decoding never blocks the UI.
 - **Level of detail:** a screen-space-error-driven octree walk decides what to subdivide, so point density matches what the camera can actually resolve, and a node is only ever swapped out once its replacement is ready to show — no flash of empty space mid-transition.
 - **CRS-aware:** auto-detects the source coordinate system (including compound CRSes with a non-meter vertical unit) from the file's own WKT metadata, with a proj4-backed EPSG fallback table.
-- **Live-tunable:** `pixelSize` and `sseThreshold` can be adjusted on a running data source with no reload.
+- **Live-tunable:** `pixelSize`, `sseThreshold`, and the whole [styling API](#styling) can be adjusted on a running data source with no reload.
 - **Genuinely drop-in:** the published package is a single self-contained `.mjs` file — the Worker and its `laz-perf` WASM module are compiled inline at build time, so there's no separate asset for your bundler to lose track of.
 
 > 📖 **In-depth documentation lives in the [wiki](https://github.com/Jangmyun/copcesium/wiki):** [Architecture](https://github.com/Jangmyun/copcesium/wiki/Architecture) · [Options & Tuning](https://github.com/Jangmyun/copcesium/wiki/Options-and-Tuning) · [Coordinate Systems](https://github.com/Jangmyun/copcesium/wiki/Coordinate-Systems) · [Converting to COPC](https://github.com/Jangmyun/copcesium/wiki/Converting-to-COPC) · [Troubleshooting](https://github.com/Jangmyun/copcesium/wiki/Troubleshooting). This README is the quick reference.
@@ -89,6 +89,9 @@ interface CopcDataSourceOptions {
   zFactor?: number;
   xyFactor?: number;
   autoFrame?: boolean;
+  colorMode?: 'rgb' | 'intensity' | 'classification' | 'elevation';
+  classificationFilter?: number[];
+  intensityRange?: [number, number];
 }
 ```
 
@@ -106,6 +109,9 @@ interface CopcDataSourceOptions {
 | `pixelSize` | `2` | Point size in pixels. Live-adjustable after load via `dataSource.pixelSize`. |
 | `sseThreshold` | `250` | Screen-space error (pixels) above which a node is subdivided into children. Lower = more detail, more nodes loaded. Live-adjustable via `dataSource.sseThreshold`. |
 | `autoFrame` | `true` | Whether `load()` flies the camera to the dataset before resolving. Set `false` if you're managing the camera yourself. |
+| `colorMode` | `'rgb'` | How points are coloured. Live-adjustable via `dataSource.colorMode`. See [Styling](#styling). |
+| `classificationFilter` | all codes | LAS classification codes to draw; everything else is dropped. Live-adjustable via `dataSource.classificationFilter`. |
+| `intensityRange` | auto | Raw intensity values at the two ends of the `'intensity'` ramp. Grows to `[0, highest seen]` as nodes load when omitted. |
 
 ## API reference
 
@@ -124,6 +130,9 @@ Static factory — `CopcDataSource` has no public constructor. Resolves once the
 class CopcDataSource {
   pixelSize: number;
   sseThreshold: number;
+  colorMode: ColorMode;
+  classificationFilter: number[] | undefined;
+  intensityRange: [number, number];
   readonly maxDepth: number;
   readonly nodeCount: number;
   readonly cacheSize: number;
@@ -136,11 +145,50 @@ class CopcDataSource {
 | --- | --- |
 | `pixelSize` | Get/set. Updates every currently-rendered node's point size immediately, no reload. |
 | `sseThreshold` | Get/set. Triggers an immediate LoD re-selection pass when set. |
+| `colorMode` | Get/set. Repaints every loaded node on the next frame — no refetch, no re-decode. |
+| `classificationFilter` | Get/set. Assign `undefined` to draw everything again. Throws `RangeError` on a value outside 0-255. |
+| `intensityRange` | Get/set. Assign `undefined` to hand the range back to auto. |
 | `maxDepth` | Read-only. Deepest octree level present in the loaded hierarchy. |
 | `nodeCount` | Read-only. Total nodes in the hierarchy (loaded or not). |
 | `cacheSize` | Read-only. Nodes currently retained in the LRU cache. |
 | `zoomTo()` | Flies the camera to the dataset's root bounding sphere. Called internally by `load()` when `autoFrame` is enabled; call it again yourself to re-frame later. |
 | `destroy()` | Tears down the Worker pool (unless it was externally provided), the node cache, and every loaded primitive. Idempotent. |
+
+## Styling
+
+Every point ships to the GPU with its colour, raw intensity, classification, and
+normalized elevation, and the colour is chosen in the vertex shader. Switching
+modes or filters is therefore a uniform update — no HTTP request, no LAZ decode,
+and the node cache is untouched.
+
+```ts
+const ds = await CopcDataSource.load(url, viewer);
+
+ds.colorMode = 'classification';   // 'rgb' | 'intensity' | 'classification' | 'elevation'
+ds.classificationFilter = [2, 6];  // draw only ground and buildings
+ds.classificationFilter = undefined; // ...and back to everything
+```
+
+| Mode | What it draws |
+| --- | --- |
+| `'rgb'` | The file's own Red/Green/Blue. Falls back per point to the classification palette, then to flat grey, when the file has no colour. |
+| `'intensity'` | Greyscale over `intensityRange`. |
+| `'classification'` | The ASPRS palette below, applied unconditionally — unlike the `'rgb'` fallback, this works on a file that *does* have colour. |
+| `'elevation'` | Blue → cyan → green → yellow → red over the file header's full Z range. |
+
+The classification palette covers the ASPRS codes below; anything else draws in
+light grey.
+
+| Code | Class | Code | Class |
+| --- | --- | --- | --- |
+| 2 | Ground | 9 | Water |
+| 3 | Low Vegetation | 10 | Rail |
+| 4 | Medium Vegetation | 11 | Road Surface |
+| 5 | High Vegetation | | |
+| 6 | Building | | |
+
+Filtered-out points are discarded in the vertex shader, so filtering hides
+points rather than reclaiming their GPU memory.
 
 ## Requirements: HTTP Range Requests and CORS
 
@@ -159,7 +207,7 @@ Full details — the detection flow, the proj4 fallback table, vertical-unit (`z
 
 ## Example
 
-[`examples/basic-viewer`](./examples/basic-viewer) is a minimal, standalone project that installs `copcesium` from the npm registry (not from this repo's `src/`) — a URL input, `pixelSize`/`sseThreshold` sliders, a "Remove & reload" button, and an on-screen error area. It loads a public sample dataset ([Autzen Stadium](https://github.com/PDAL/data/tree/main/autzen)) automatically.
+[`examples/basic-viewer`](./examples/basic-viewer) is a minimal, standalone project that installs `copcesium` from the npm registry (not from this repo's `src/`) — a URL input, `pixelSize`/`sseThreshold` sliders, a `colorMode` picker, per-class filter checkboxes, a "Remove & reload" button, and an on-screen error area. It loads a public sample dataset ([Autzen Stadium](https://github.com/PDAL/data/tree/main/autzen)) automatically.
 
 ```bash
 git clone https://github.com/Jangmyun/copcesium.git
