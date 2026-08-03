@@ -4,7 +4,7 @@
 
 # [copcesium](https://github.com/Jangmyun/copcesium) &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Jangmyun/copcesium/blob/main/LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Jangmyun/copcesium/issues)
 
-[한국어 README](./README_KO.md)
+[한국어 README](./README.ko.md)
 
 CesiumJS provider for real-time [COPC](https://copc.io/) (Cloud Optimized Point Cloud) streaming and rendering.
 
@@ -228,4 +228,4 @@ Then open the printed local URL in a browser.
 
 ## License
 
-copcesium is [MIT licensed](./LICENSE). See [CHANGELOG.md](./CHANGELOG.md) for release history.
+copcesium is [MIT licensed](./LICENSE). The distributed build bundles third-party open-source code whose licenses and notices are collected in [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md). See [CHANGELOG.md](./CHANGELOG.md) for release history.

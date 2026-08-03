@@ -223,4 +223,4 @@ npm run dev
 
 ## 라이선스
 
-copcesium은 [MIT 라이선스](./LICENSE)를 따릅니다. 릴리스 이력은 [CHANGELOG.md](./CHANGELOG.md)를 참고하세요.
+copcesium은 [MIT 라이선스](./LICENSE)를 따릅니다. 배포 빌드에 번들되는 서드파티 오픈소스의 라이선스·고지는 [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md)에 정리돼 있습니다. 릴리스 이력은 [CHANGELOG.md](./CHANGELOG.md)를 참고하세요.
