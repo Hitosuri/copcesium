@@ -74,9 +74,31 @@ describe('convertNode', () => {
 
     expect(proj4Forward).not.toHaveBeenCalled();
     const [x, y, z] = lonLatAltToEcef(10, 20, 0);
-    expect(result.positions[0]).toBeCloseTo(x, 6);
-    expect(result.positions[1]).toBeCloseTo(y, 6);
-    expect(result.positions[2]).toBeCloseTo(z, 6);
+    // The single point is the node origin, so its own offset is zero and the
+    // absolute ECEF lives in `origin`.
+    expect(result.origin[0]).toBeCloseTo(x, 6);
+    expect(result.origin[1]).toBeCloseTo(y, 6);
+    expect(result.origin[2]).toBeCloseTo(z, 6);
+    expect(result.positions[0]).toBe(0);
+    expect(result.positions[1]).toBe(0);
+    expect(result.positions[2]).toBe(0);
+  });
+
+  it('emits points as Float32 offsets from the first point (the node origin)', async () => {
+    // Two points a few meters apart, the scale of a real leaf node.
+    loadPointDataView.mockResolvedValueOnce(makeView({ X: [10, 10.00001], Y: [20, 20], Z: [0, 5] }));
+
+    const result = await convertNode(BASE_PAYLOAD);
+
+    const p0 = lonLatAltToEcef(10, 20, 0);
+    const p1 = lonLatAltToEcef(10.00001, 20, 5);
+    expect(result.positions).toBeInstanceOf(Float32Array);
+    expect(result.origin[0]).toBeCloseTo(p0[0], 6);
+    expect(result.positions[0]).toBe(0);
+    for (let c = 0; c < 3; c++) {
+      // origin + offset reconstructs the absolute ECEF of the second point.
+      expect(result.origin[c] + result.positions[3 + c]).toBeCloseTo(p1[c], 3);
+    }
   });
 
   it('registers projDef once and transforms X/Y through proj4 for a non-4326 CRS', async () => {
@@ -107,7 +129,7 @@ describe('convertNode', () => {
 
     const expectedAlt = 100 * 0.3048 + 10;
     const [, , expectedZ] = lonLatAltToEcef(0, 0, expectedAlt);
-    expect(result.positions[2]).toBeCloseTo(expectedZ, 3);
+    expect(result.origin[2]).toBeCloseTo(expectedZ, 3);
   });
 
   it('scales 16-bit RGB down to 0-255', async () => {

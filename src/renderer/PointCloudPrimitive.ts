@@ -37,28 +37,8 @@ interface CesiumInternal {
   DrawCommand: new (opts: Record<string, unknown>) => unknown;
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
   Pass: { OPAQUE: unknown };
-  EncodedCartesian3: {
-    encode(value: number, result: { high: number; low: number }): { high: number; low: number };
-  };
 }
 const CesiumAny = Cesium as unknown as CesiumInternal;
-
-/**
- * Splits ECEF positions into high/low Float32 pairs so the vertex shader can
- * reconstruct eye-relative coordinates without losing GPU float32 precision.
- */
-export function splitPositions(positions: Float64Array): { posHigh: Float32Array; posLow: Float32Array } {
-  const n = positions.length;
-  const posHigh = new Float32Array(n);
-  const posLow = new Float32Array(n);
-  const encoded = { high: 0, low: 0 };
-  for (let i = 0; i < n; i++) {
-    CesiumAny.EncodedCartesian3.encode(positions[i], encoded);
-    posHigh[i] = encoded.high;
-    posLow[i] = encoded.low;
-  }
-  return { posHigh, posLow };
-}
 
 // Cesium.Primitive allocates a JS object per point; this DrawCommand-based
 // wrapper instead uploads the node's TypedArrays as a single GPU buffer.
@@ -66,8 +46,8 @@ export function splitPositions(positions: Float64Array): { posHigh: Float32Array
 // GPU resources (VertexArray, ShaderProgram) are created lazily on the first
 // update() call, since frameState.context is only available there.
 export class PointCloudPrimitive {
-  private _posHigh: Float32Array | null;
-  private _posLow: Float32Array | null;
+  private _positions: Float32Array | null;
+  private _origin: [number, number, number];
   private _colors: Uint8Array | null;
   private _intensities: Uint16Array | null;
   private _classifications: Uint8Array | null;
@@ -82,9 +62,8 @@ export class PointCloudPrimitive {
   private _sp: { destroy(): void } | null;
 
   constructor(renderData: NodeRenderData, boundingSphere: Cesium.BoundingSphere, style: PointStyle) {
-    const { posHigh, posLow } = splitPositions(renderData.positions);
-    this._posHigh = posHigh;
-    this._posLow = posLow;
+    this._positions = renderData.positions;
+    this._origin = renderData.origin;
     this._colors = renderData.colors;
     this._intensities = renderData.intensities;
     this._classifications = renderData.classifications;
@@ -131,23 +110,15 @@ export class PointCloudPrimitive {
         context,
         attributes: [
           {
-            index: 0, // position3DHigh
-            vertexBuffer: mkVBuf(this._posHigh!),
+            index: 0, // position (node-relative offset)
+            vertexBuffer: mkVBuf(this._positions!),
             componentsPerAttribute: 3,
             componentDatatype: Cesium.ComponentDatatype.FLOAT,
             offsetInBytes: 0,
             strideInBytes: 12,
           },
           {
-            index: 1, // position3DLow
-            vertexBuffer: mkVBuf(this._posLow!),
-            componentsPerAttribute: 3,
-            componentDatatype: Cesium.ComponentDatatype.FLOAT,
-            offsetInBytes: 0,
-            strideInBytes: 12,
-          },
-          {
-            index: 2, // color
+            index: 1, // color
             vertexBuffer: mkVBuf(this._colors!),
             componentsPerAttribute: 4,
             componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
@@ -156,7 +127,7 @@ export class PointCloudPrimitive {
             strideInBytes: 4,
           },
           {
-            index: 3, // intensity
+            index: 2, // intensity
             vertexBuffer: mkVBuf(this._intensities!),
             componentsPerAttribute: 1,
             componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
@@ -165,7 +136,7 @@ export class PointCloudPrimitive {
             strideInBytes: 2,
           },
           {
-            index: 4, // classification
+            index: 3, // classification
             vertexBuffer: mkVBuf(this._classifications!),
             componentsPerAttribute: 1,
             componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
@@ -174,7 +145,7 @@ export class PointCloudPrimitive {
             strideInBytes: 1,
           },
           {
-            index: 5, // elevation
+            index: 4, // elevation
             vertexBuffer: mkVBuf(this._elevations!),
             componentsPerAttribute: 1,
             componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
@@ -192,12 +163,11 @@ export class PointCloudPrimitive {
         vertexShaderSource,
         fragmentShaderSource,
         attributeLocations: {
-          position3DHigh: 0,
-          position3DLow: 1,
-          color: 2,
-          intensity: 3,
-          classification: 4,
-          elevation: 5,
+          position: 0,
+          color: 1,
+          intensity: 2,
+          classification: 3,
+          elevation: 4,
         },
       });
 
@@ -214,7 +184,11 @@ export class PointCloudPrimitive {
         boundingVolume: this._boundingSphere,
         count: this._pointCount,
         pass: CesiumAny.Pass.OPAQUE,
-        modelMatrix: Cesium.Matrix4.IDENTITY,
+        // Carries the node origin the worker subtracted off; the vertex shader
+        // reconstructs absolute ECEF from this plus the node-relative offsets.
+        modelMatrix: Cesium.Matrix4.fromTranslation(
+          new Cesium.Cartesian3(this._origin[0], this._origin[1], this._origin[2]),
+        ),
         uniformMap: {
           u_pixelSize: () => style.pixelSize,
           u_colorMode: () => style.colorMode,
@@ -239,8 +213,7 @@ export class PointCloudPrimitive {
 
     // CPU-side arrays are no longer needed once uploaded to the GPU. Every
     // style change is a uniform update, so nothing here has to be re-read.
-    this._posHigh = null;
-    this._posLow = null;
+    this._positions = null;
     this._colors = null;
     this._intensities = null;
     this._classifications = null;

@@ -69,7 +69,10 @@ export interface NodeBounds {
  * lets a mode change be a uniform update rather than a re-decode.
  */
 export interface NodeRenderData {
-  positions: Float64Array;
+  /** Point positions as Float32 offsets from `origin`, in ECEF meters. */
+  positions: Float32Array;
+  /** ECEF origin (double precision) the positions are relative to; carried in the primitive's model matrix. */
+  origin: [number, number, number];
   colors: Uint8Array;
   /** Raw LAS `Intensity`, or all zeroes when the file has no such dimension. */
   intensities: Uint16Array;

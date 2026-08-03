@@ -7,7 +7,8 @@ import type { NodeRenderData } from '../types';
 
 // Mock render data, standing in for what a Worker will eventually produce.
 const renderData: NodeRenderData = {
-  positions: new Float64Array([6378137, 0, 0, 0, 6378137, 0]),
+  positions: new Float32Array([0, 0, 0, -6378137, 6378137, 0]),
+  origin: [6378137, 0, 0],
   colors: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]),
   intensities: new Uint16Array([100, 200]),
   classifications: new Uint8Array([2, 6]),

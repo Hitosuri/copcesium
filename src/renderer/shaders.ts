@@ -46,8 +46,7 @@ const classificationBranches = Object.entries(CLASSIFICATION_COLORS)
   .join('\n');
 
 export const vertexShaderSource = `
-in vec3 position3DHigh;
-in vec3 position3DLow;
+in vec3 position;
 in vec4 color;
 in float intensity;       // UNSIGNED_SHORT, normalized -> raw / 65535
 in float classification;  // UNSIGNED_BYTE, normalized  -> code / 255
@@ -108,8 +107,12 @@ void main() {
 
   v_color = vec4(rgb, color.a);
   gl_PointSize = u_pixelSize;
-  vec4 p = czm_translateRelativeToEye(position3DHigh, position3DLow);
-  gl_Position = czm_modelViewProjectionRelativeToEye * p;
+  // position is a node-relative offset (model coordinates); the node origin
+  // rides in the model matrix. Reconstruct the eye-relative position the way
+  // czm_translateRelativeToEye does, but from a single Float32 offset — the
+  // precision comes from the double-precision origin baked into the matrix.
+  vec3 eyeRel = position - czm_encodedCameraPositionMCHigh - czm_encodedCameraPositionMCLow;
+  gl_Position = czm_modelViewProjectionRelativeToEye * vec4(eyeRel, 1.0);
 }`;
 
 export const fragmentShaderSource = `
