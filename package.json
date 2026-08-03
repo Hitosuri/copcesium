@@ -15,7 +15,8 @@
   },
   "files": [
     "dist",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "THIRD_PARTY_LICENSES.md"
   ],
   "scripts": {
     "build": "vite build && tsc --emitDeclarationOnly",
