@@ -87,13 +87,26 @@ export interface SelectNodesOptions {
 /**
  * Traverses the COPC octree starting at the root key ("0-0-0-0"), expanding
  * the highest screen-space-error node first, and returns the set of node
- * keys to render for the current camera view. A node is expanded into its
- * children when its projected screen-space error exceeds `sseThreshold` and
- * at least one child actually has data; otherwise the node itself is
- * selected. A node with zero points is never selected as a leaf — even below
- * the SSE threshold, it holds nothing to draw, so its children (if any) are
- * expanded instead. Nodes outside the view frustum are dropped along with
- * their whole subtree.
+ * keys to render for the current camera view.
+ *
+ * Every node the traversal visits is selected, not just the ones it stops at.
+ * A COPC octree stores each point in exactly one node, so a node's points are
+ * not a coarse copy of its children's — they are distinct points interleaved
+ * through the same volume, and the cloud the user sees is the union of the
+ * root down through the current cut. Selecting only the frontier would
+ * silently drop everything held above it (19% of `autzen-classified`, 55% of
+ * `redrocks.small`). A node is expanded further when its projected
+ * screen-space error exceeds `sseThreshold`; children add detail on top of it
+ * rather than replacing it.
+ *
+ * A node with zero points is never selected — it holds nothing to draw — but
+ * is still expanded regardless of SSE so its populated children are reached.
+ * Nodes outside the view frustum are dropped along with their whole subtree.
+ *
+ * `maxVisibleNodes` bounds the whole render set, ancestors included. Since a
+ * parent is always popped before its children are pushed, the budget can only
+ * ever cut depth off the bottom, never leave a descendant selected without
+ * the ancestors it sits on top of.
  */
 export function selectNodes(options: SelectNodesOptions): string[] {
   const { nodes, getSphere, camera, viewportHeight, sseThreshold, maxVisibleNodes } = options;
@@ -116,23 +129,15 @@ export function selectNodes(options: SelectNodesOptions): string[] {
     const sphere = getSphere(key);
     if (!isInFrustum(sphere, cullingVolume)) continue;
 
-    const childKeys = getChildKeys(key).filter((childKey) => nodes[childKey]);
+    if (nodeInfo.pointCount > 0) selected.push(key);
 
-    if (nodeInfo.pointCount === 0) {
-      // Nothing to draw here regardless of SSE — descend without selecting.
-      for (const childKey of childKeys) {
-        heap.push({ key: childKey, sse: sseOf(childKey) });
-      }
-      continue;
-    }
+    // An empty node is descended through regardless of SSE — it contributes
+    // nothing itself, so its populated children are the only way to fill the
+    // volume it covers.
+    if (nodeInfo.pointCount > 0 && sseOf(key) <= sseThreshold) continue;
 
-    const sse = sseOf(key);
-    if (sse > sseThreshold && childKeys.length > 0) {
-      for (const childKey of childKeys) {
-        heap.push({ key: childKey, sse: sseOf(childKey) });
-      }
-    } else {
-      selected.push(key);
+    for (const childKey of getChildKeys(key)) {
+      if (nodes[childKey]) heap.push({ key: childKey, sse: sseOf(childKey) });
     }
   }
 
