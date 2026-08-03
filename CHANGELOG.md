@@ -3,6 +3,44 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-08-03
+
+### Fixed
+
+- **LoD selection could still leave a gap on multi-level camera jumps.**
+  `_isReplacementReady()` only checked a node's direct parent/children for
+  its replacement; a camera jump that moved the selection cut two or more
+  levels in a single pass matched neither, reproducing the #58 gap the
+  check was meant to close. Replacement matching now uses octree
+  containment at any depth via a new `isAncestorOf()`. (#66)
+- **LoD selection dropped ancestor nodes, thinning the visible cloud.**
+  `selectNodes()` returned only the frontier nodes it stopped subdividing
+  at, discarding every ancestor on the way down. A COPC octree's node
+  points are not a coarse copy of its children's — they're distinct points
+  partitioning the same volume — so the visible cloud is the union of the
+  root down through the current cut, not just the frontier. The full
+  root-to-cut path is now rendered. (#76)
+- **`examples/basic-viewer`'s lockfile pointed at a local tarball.**
+  `package-lock.json` resolved `copcesium` to a leftover
+  `file:../../copcesium-1.0.1.tgz` from local `npm pack` testing, which
+  isn't in the repository, so `npm ci` failed with ENOENT on a fresh
+  clone. Regenerated against the registry (`^1.0.2`). (#69)
+- **Release workflow's regression guards never ran.**
+  `.github/workflows/publish.yml` ran `npm test` before `npm run build`,
+  so the two `dist/`-output regression guards in `src/build.test.ts`
+  (gated on `dist/` existing) silently skipped on every CI run instead of
+  catching a repeat of the worker-404 bug from #54. `npm run build` now
+  runs before `npm test`. (#71)
+
+### Changed
+
+- Added `.github/workflows/publish.yml`, publishing to npm on GitHub
+  Release via OIDC trusted publishing instead of a long-lived token. (#63)
+- Added a `dev:src` mode to `examples/basic-viewer` that aliases the
+  `copcesium` import to `../../src`, so source changes are visible via
+  Vite HMR without a build/pack/publish step. (#72)
+- Slimmed the README, moving deep-dive content to the wiki.
+
 ## [1.0.2] - 2026-07-31
 
 ### Fixed
