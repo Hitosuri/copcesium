@@ -2,8 +2,20 @@ import * as Cesium from 'cesium';
 import { vertexShaderSource, fragmentShaderSource } from './shaders';
 import type { NodeRenderData } from '../types';
 
-export interface Ref<T> {
-  value: T;
+/**
+ * Style state shared live by every loaded primitive. Mutated in place by
+ * `CopcDataSource`'s setters and read through each primitive's `uniformMap`,
+ * so a style change is a uniform update on the next frame — no cache
+ * invalidation, no refetch, no re-decode.
+ */
+export interface PointStyle {
+  pixelSize: number;
+  /** One of `COLOR_MODE`'s values. */
+  colorMode: number;
+  /** Raw LAS intensity units at the two ends of the intensity ramp. */
+  intensityRange: Cesium.Cartesian2;
+  /** The 256-bit classification allow-list, as the 2 ivec4s `buildClassMask` packs. */
+  classMask: Cesium.Cartesian4[];
 }
 
 // Cesium's low-level GPU API (Buffer/VertexArray/ShaderProgram/DrawCommand) has no
@@ -57,23 +69,29 @@ export class PointCloudPrimitive {
   private _posHigh: Float32Array | null;
   private _posLow: Float32Array | null;
   private _colors: Uint8Array | null;
+  private _intensities: Uint16Array | null;
+  private _classifications: Uint8Array | null;
+  private _elevations: Uint16Array | null;
   private _pointCount: number;
   private _boundingSphere: Cesium.BoundingSphere;
-  private _pixelSizeRef: Ref<number>;
+  private _style: PointStyle;
   public show: boolean;
   private _destroyed: boolean;
   private _cmd: unknown;
   private _va: { destroy(): void } | null;
   private _sp: { destroy(): void } | null;
 
-  constructor(renderData: NodeRenderData, boundingSphere: Cesium.BoundingSphere, pixelSizeRef: Ref<number>) {
+  constructor(renderData: NodeRenderData, boundingSphere: Cesium.BoundingSphere, style: PointStyle) {
     const { posHigh, posLow } = splitPositions(renderData.positions);
     this._posHigh = posHigh;
     this._posLow = posLow;
     this._colors = renderData.colors;
+    this._intensities = renderData.intensities;
+    this._classifications = renderData.classifications;
+    this._elevations = renderData.elevations;
     this._pointCount = renderData.pointCount;
     this._boundingSphere = boundingSphere;
-    this._pixelSizeRef = pixelSizeRef;
+    this._style = style;
     this.show = true;
     this._destroyed = false;
     this._cmd = null;
@@ -137,10 +155,37 @@ export class PointCloudPrimitive {
             offsetInBytes: 0,
             strideInBytes: 4,
           },
+          {
+            index: 3, // intensity
+            vertexBuffer: mkVBuf(this._intensities!),
+            componentsPerAttribute: 1,
+            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
+            normalize: true,
+            offsetInBytes: 0,
+            strideInBytes: 2,
+          },
+          {
+            index: 4, // classification
+            vertexBuffer: mkVBuf(this._classifications!),
+            componentsPerAttribute: 1,
+            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
+            normalize: true,
+            offsetInBytes: 0,
+            strideInBytes: 1,
+          },
+          {
+            index: 5, // elevation
+            vertexBuffer: mkVBuf(this._elevations!),
+            componentsPerAttribute: 1,
+            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
+            normalize: true,
+            offsetInBytes: 0,
+            strideInBytes: 2,
+          },
         ],
       });
 
-      const pixelSizeRef = this._pixelSizeRef;
+      const style = this._style;
 
       sp = CesiumAny.ShaderProgram.fromCache({
         context,
@@ -150,6 +195,9 @@ export class PointCloudPrimitive {
           position3DHigh: 0,
           position3DLow: 1,
           color: 2,
+          intensity: 3,
+          classification: 4,
+          elevation: 5,
         },
       });
 
@@ -168,7 +216,10 @@ export class PointCloudPrimitive {
         pass: CesiumAny.Pass.OPAQUE,
         modelMatrix: Cesium.Matrix4.IDENTITY,
         uniformMap: {
-          u_pixelSize: () => pixelSizeRef.value,
+          u_pixelSize: () => style.pixelSize,
+          u_colorMode: () => style.colorMode,
+          u_intensityRange: () => style.intensityRange,
+          u_classMask: () => style.classMask,
         },
       });
     } catch (err) {
@@ -186,10 +237,19 @@ export class PointCloudPrimitive {
       throw err;
     }
 
-    // CPU-side arrays are no longer needed once uploaded to the GPU.
+    // CPU-side arrays are no longer needed once uploaded to the GPU. Every
+    // style change is a uniform update, so nothing here has to be re-read.
     this._posHigh = null;
     this._posLow = null;
     this._colors = null;
+    this._intensities = null;
+    this._classifications = null;
+    this._elevations = null;
+  }
+
+  /** The shared style object this primitive's uniforms read through. */
+  get style(): PointStyle {
+    return this._style;
   }
 
   isDestroyed(): boolean {

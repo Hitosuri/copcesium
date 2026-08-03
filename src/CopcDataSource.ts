@@ -1,7 +1,7 @@
 import * as Cesium from 'cesium';
 import proj4 from 'proj4';
 import type { Copc, Hierarchy } from 'copc';
-import type { CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
+import type { ColorMode, CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
 import { isAncestorOf } from './copc/node';
 import { detectCrs } from './crs/detectCrs';
@@ -9,7 +9,8 @@ import { createProjector } from './crs/project';
 import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './lod/boundingVolume';
 import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
-import type { PointCloudPrimitive, Ref } from './renderer/PointCloudPrimitive';
+import type { PointCloudPrimitive, PointStyle } from './renderer/PointCloudPrimitive';
+import { COLOR_MODE, buildClassMask } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
 import { NodeCache } from './cache/NodeCache';
@@ -24,7 +25,15 @@ import CopcWorker from './worker/worker.ts?worker&inline';
 
 export type { CopcDataSourceOptions };
 
-const DEFAULT_OPTIONS: Required<CopcDataSourceOptions> = {
+/**
+ * Options with every defaultable field filled in. `classificationFilter` and
+ * `intensityRange` stay optional because their unset state is meaningful —
+ * "no filter" and "auto-range as nodes arrive" aren't expressible as a value.
+ */
+type ResolvedOptions = Required<Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>> &
+  Pick<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>;
+
+const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>> = {
   proj: 'EPSG:4326',
   projDef: null,
   geoidOffset: 0,
@@ -37,6 +46,7 @@ const DEFAULT_OPTIONS: Required<CopcDataSourceOptions> = {
   zFactor: 1,
   xyFactor: 1,
   autoFrame: true,
+  colorMode: 'rgb',
 };
 
 export class CopcDataSource {
@@ -47,9 +57,11 @@ export class CopcDataSource {
   private readonly _maxDepth: number;
   private readonly _rootCenter: { x: number; y: number; z: number };
   private readonly _rootHalfSize: number;
-  private readonly _options: Required<CopcDataSourceOptions>;
+  private readonly _options: ResolvedOptions;
   private readonly _project: ProjectToCartesian;
-  private readonly _pixelSizeRef: Ref<number>;
+  private readonly _style: PointStyle;
+  /** True while `intensityRange` is unpinned and grows with each node loaded. */
+  private _autoIntensityRange: boolean;
   private readonly _nodeCache: NodeCache;
   private readonly _workerPool: WorkerPool;
   private readonly _ownsPool: boolean;
@@ -67,7 +79,7 @@ export class CopcDataSource {
     url: string,
     viewer: Cesium.Viewer,
     hierarchy: Awaited<ReturnType<typeof loadCopcHierarchy>>,
-    options: Required<CopcDataSourceOptions>,
+    options: ResolvedOptions,
     project: ProjectToCartesian,
     workerPool: WorkerPool,
     ownsPool: boolean,
@@ -81,7 +93,13 @@ export class CopcDataSource {
     this._rootHalfSize = hierarchy.rootHalfSize;
     this._options = options;
     this._project = project;
-    this._pixelSizeRef = { value: options.pixelSize };
+    this._style = {
+      pixelSize: options.pixelSize,
+      colorMode: COLOR_MODE[options.colorMode],
+      intensityRange: new Cesium.Cartesian2(options.intensityRange?.[0] ?? 0, options.intensityRange?.[1] ?? 1),
+      classMask: buildClassMask(options.classificationFilter),
+    };
+    this._autoIntensityRange = options.intensityRange === undefined;
     this._nodeCache = new NodeCache(options.maxCacheNodes, (_key, node) => this._destroyLoadedNode(node));
     this._workerPool = workerPool;
     this._ownsPool = ownsPool;
@@ -99,7 +117,7 @@ export class CopcDataSource {
     options: CopcDataSourceOptions = {},
     workerPool?: WorkerPool,
   ): Promise<CopcDataSource> {
-    const resolved: Required<CopcDataSourceOptions> = { ...DEFAULT_OPTIONS, ...options };
+    const resolved: ResolvedOptions = { ...DEFAULT_OPTIONS, ...options };
 
     const hierarchy = await loadCopcHierarchy(url);
 
@@ -322,12 +340,15 @@ export class CopcDataSource {
         projDef: this._options.projDef,
         geoidOffset: this._options.geoidOffset,
         zFactor: this._options.zFactor,
+        zMin: this._copc.header.min[2],
+        zMax: this._copc.header.max[2],
       };
       const renderData = await this._workerPool.run<NodeRenderData>(payload);
       if (this._destroyed) return;
 
       const boundingSphere = this._getSphere(key);
-      const primitive = await createNodePrimitive(renderData, boundingSphere, this._pixelSizeRef);
+      this._growAutoIntensityRange(renderData.maxIntensity);
+      const primitive = await createNodePrimitive(renderData, boundingSphere, this._style);
       if (this._destroyed) {
         primitive.destroy();
         return;
@@ -353,12 +374,66 @@ export class CopcDataSource {
     this._viewer.scene.requestRender();
   }
 
+  /** Widens the auto intensity range as nodes arrive; a no-op once pinned. */
+  private _growAutoIntensityRange(maxIntensity: number): void {
+    if (!this._autoIntensityRange) return;
+    if (maxIntensity <= this._style.intensityRange.y) return;
+    this._style.intensityRange.y = maxIntensity;
+  }
+
   /** Point size in pixels, shared live by every loaded primitive (no reload needed). */
   get pixelSize(): number {
-    return this._pixelSizeRef.value;
+    return this._style.pixelSize;
   }
   set pixelSize(value: number) {
-    this._pixelSizeRef.value = value;
+    this._style.pixelSize = value;
+    this._viewer.scene.requestRender();
+  }
+
+  /**
+   * How points are coloured. Every mode reads attributes already uploaded to
+   * the GPU, so switching costs one uniform update — no refetch, no re-decode,
+   * and the node cache is untouched.
+   */
+  get colorMode(): ColorMode {
+    return this._options.colorMode;
+  }
+  set colorMode(value: ColorMode) {
+    this._options.colorMode = value;
+    this._style.colorMode = COLOR_MODE[value];
+    this._viewer.scene.requestRender();
+  }
+
+  /**
+   * Classification codes to draw, or `undefined` to draw everything. Filtered
+   * points are dropped in the vertex shader, so they still occupy GPU memory
+   * — this hides points, it doesn't reclaim anything.
+   */
+  get classificationFilter(): number[] | undefined {
+    return this._options.classificationFilter;
+  }
+  set classificationFilter(value: number[] | undefined) {
+    // Built before either field is assigned, so an out-of-range code throws
+    // without leaving the filter half-applied.
+    const mask = buildClassMask(value);
+    this._options.classificationFilter = value;
+    this._style.classMask = mask;
+    this._viewer.scene.requestRender();
+  }
+
+  /**
+   * Raw LAS intensity values at the two ends of the `'intensity'` ramp.
+   * Assigning `undefined` hands the range back to auto, which rebuilds it from
+   * the nodes loaded from then on rather than the ones already resident.
+   */
+  get intensityRange(): [number, number] {
+    return [this._style.intensityRange.x, this._style.intensityRange.y];
+  }
+  set intensityRange(value: [number, number] | undefined) {
+    this._autoIntensityRange = value === undefined;
+    this._options.intensityRange = value;
+    this._style.intensityRange.x = value?.[0] ?? 0;
+    this._style.intensityRange.y = value?.[1] ?? 1;
     this._viewer.scene.requestRender();
   }
 

@@ -16,4 +16,11 @@ export interface NodeConversionPayload {
   geoidOffset: number;
   /** Converts the Z axis unit to meters (see CopcDataSourceOptions.zFactor). */
   zFactor: number;
+  /**
+   * The file header's Z range, in source units. Used only to normalize each
+   * point's Z for the elevation colour ramp — a per-node range would make the
+   * same height a different colour in different nodes.
+   */
+  zMin: number;
+  zMax: number;
 }

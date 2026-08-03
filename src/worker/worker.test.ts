@@ -46,6 +46,8 @@ const BASE_PAYLOAD = {
   projDef: null,
   geoidOffset: 0,
   zFactor: 1,
+  zMin: 0,
+  zMax: 100,
 };
 
 describe('lonLatAltToEcef', () => {
@@ -135,6 +137,59 @@ describe('convertNode', () => {
     const result = await convertNode(BASE_PAYLOAD);
 
     expect([result.colors[0], result.colors[1], result.colors[2]]).toEqual([200, 200, 200]);
+  });
+
+  it('ships raw Intensity and Classification as their own attributes, alongside the baked colour', async () => {
+    // The styling API colours in the shader, so these have to survive decoding
+    // even on a file that has RGB and never exercises the colour fallback.
+    loadPointDataView.mockResolvedValueOnce(
+      makeView({
+        X: [0, 0],
+        Y: [0, 0],
+        Z: [0, 0],
+        Red: [255, 0],
+        Green: [0, 255],
+        Blue: [0, 0],
+        Intensity: [1000, 4095],
+        Classification: [2, 6],
+      }),
+    );
+
+    const result = await convertNode(BASE_PAYLOAD);
+
+    expect(Array.from(result.intensities)).toEqual([1000, 4095]);
+    expect(Array.from(result.classifications)).toEqual([2, 6]);
+    expect(result.maxIntensity).toBe(4095);
+    // The baked colour is still the file's RGB, unchanged.
+    expect([result.colors[0], result.colors[1], result.colors[2]]).toEqual([255, 0, 0]);
+  });
+
+  it('leaves the new attributes zeroed when the file has no such dimensions', async () => {
+    loadPointDataView.mockResolvedValueOnce(makeView({ X: [0], Y: [0], Z: [0] }));
+
+    const result = await convertNode(BASE_PAYLOAD);
+
+    expect(Array.from(result.intensities)).toEqual([0]);
+    expect(Array.from(result.classifications)).toEqual([0]);
+    expect(result.maxIntensity).toBe(0);
+  });
+
+  it('normalizes elevation over the header Z range, not the values present in the node', async () => {
+    loadPointDataView.mockResolvedValueOnce(makeView({ X: [0, 0, 0], Y: [0, 0, 0], Z: [0, 50, 100] }));
+
+    const result = await convertNode({ ...BASE_PAYLOAD, zMin: 0, zMax: 100 });
+
+    expect(result.elevations[0]).toBe(0);
+    expect(result.elevations[1]).toBe(32768); // rounds up from 32767.5
+    expect(result.elevations[2]).toBe(65535);
+  });
+
+  it('normalizes elevation to zero when the header reports a flat dataset, instead of dividing by zero', async () => {
+    loadPointDataView.mockResolvedValueOnce(makeView({ X: [0, 0], Y: [0, 0], Z: [5, 5] }));
+
+    const result = await convertNode({ ...BASE_PAYLOAD, zMin: 5, zMax: 5 });
+
+    expect(Array.from(result.elevations)).toEqual([0, 0]);
   });
 
   it('rejects an out-of-range pointCount instead of allocating huge buffers', async () => {

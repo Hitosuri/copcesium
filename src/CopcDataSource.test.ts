@@ -119,6 +119,9 @@ function mockCopc(wkt: string | undefined) {
       cube: [0, 0, 0, 10, 10, 10],
       rootHierarchyPage: { pageOffset: 0, pageLength: 10 },
     },
+    // The elevation colour ramp normalizes each point's Z over the header's
+    // range, so _loadNode() reads header.min/max on every dispatch.
+    header: { min: [0, 0, 0], max: [10, 10, 10] },
     wkt,
   });
   loadHierarchyPage.mockResolvedValueOnce({
@@ -259,13 +262,17 @@ describe('CopcDataSource.load', () => {
   });
 });
 
-describe('CopcDataSource update loop', () => {
-  const renderData: NodeRenderData = {
-    positions: new Float64Array([6378137, 0, 0]),
-    colors: new Uint8Array([255, 0, 0, 255]),
-    pointCount: 1,
-  };
+const renderData: NodeRenderData = {
+  positions: new Float64Array([6378137, 0, 0]),
+  colors: new Uint8Array([255, 0, 0, 255]),
+  intensities: new Uint16Array([1000]),
+  classifications: new Uint8Array([2]),
+  elevations: new Uint16Array([32768]),
+  pointCount: 1,
+  maxIntensity: 1000,
+};
 
+describe('CopcDataSource update loop', () => {
   beforeEach(() => {
     selectNodesMock.mockReturnValue(['0-0-0-0']);
   });
@@ -543,6 +550,83 @@ describe('CopcDataSource runtime API', () => {
     ds.sseThreshold = 100;
     expect(ds.sseThreshold).toBe(100);
     expect(selectNodesMock).toHaveBeenCalledWith(expect.objectContaining({ sseThreshold: 100 }));
+  });
+
+  it('changes colorMode without re-dispatching any node to the worker', async () => {
+    // The whole point of the styling API: colour lives in a uniform, so the
+    // cached nodes and their GPU buffers are untouched by a mode switch.
+    mockCopc(undefined);
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    workerPoolRun.mockResolvedValueOnce(renderData);
+    const { viewer, addPrimitive, requestRender, triggerUpdate } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+
+    const dispatchesBefore = workerPoolRun.mock.calls.length;
+    requestRender.mockClear();
+    expect(ds.colorMode).toBe('rgb');
+
+    ds.colorMode = 'intensity';
+
+    expect(ds.colorMode).toBe('intensity');
+    expect(workerPoolRun.mock.calls.length).toBe(dispatchesBefore);
+    expect(ds.cacheSize).toBe(1);
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it('applies classificationFilter to the shared style, and rejects a non-classification value', async () => {
+    mockCopc(undefined);
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+
+    expect(ds.classificationFilter).toBeUndefined();
+    ds.classificationFilter = [2, 6];
+    expect(ds.classificationFilter).toEqual([2, 6]);
+    expect(requestRender).toHaveBeenCalled();
+
+    // The mask is built before anything is assigned, so a bad value leaves the
+    // previous filter in place rather than half-applying the new one.
+    expect(() => (ds.classificationFilter = [2, 999])).toThrow(RangeError);
+    expect(ds.classificationFilter).toEqual([2, 6]);
+  });
+
+  it('grows the intensity range as nodes load, and stops once the caller pins it', async () => {
+    mockCopc(undefined);
+    selectNodesMock.mockReturnValue(['0-0-0-0']);
+    workerPoolRun.mockResolvedValueOnce({ ...renderData, maxIntensity: 4095 });
+    const { viewer, addPrimitive, triggerUpdate } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(1));
+
+    // LAS producers rarely fill the 16-bit span, so a fixed 0-65535 mapping
+    // would render this file nearly black.
+    expect(ds.intensityRange).toEqual([0, 4095]);
+
+    ds.intensityRange = [0, 1000];
+    expect(ds.intensityRange).toEqual([0, 1000]);
+
+    // A later, brighter node must not widen a range the caller pinned.
+    selectNodesMock.mockReturnValue(['0-0-0-0', '1-0-0-0']);
+    workerPoolRun.mockResolvedValueOnce({ ...renderData, maxIntensity: 60000 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(addPrimitive).toHaveBeenCalledTimes(2));
+    expect(ds.intensityRange).toEqual([0, 1000]);
+  });
+
+  it('honours colorMode/classificationFilter/intensityRange passed to load()', async () => {
+    mockCopc(undefined);
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer, {
+      colorMode: 'classification',
+      classificationFilter: [2],
+      intensityRange: [10, 500],
+    });
+
+    expect(ds.colorMode).toBe('classification');
+    expect(ds.classificationFilter).toEqual([2]);
+    expect(ds.intensityRange).toEqual([10, 500]);
   });
 
   it('exposes maxDepth/nodeCount/cacheSize as read-only state', async () => {
