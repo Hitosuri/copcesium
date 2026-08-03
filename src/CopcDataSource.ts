@@ -23,7 +23,7 @@ import { NodeCache } from './cache/NodeCache';
 // consumer builds.
 import CopcWorker from './worker/worker.ts?worker&inline';
 
-export type { CopcDataSourceOptions };
+export type { ColorMode, CopcDataSourceOptions };
 
 /**
  * Options with every defaultable field filled in. `classificationFilter` and

@@ -8,7 +8,7 @@
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { CopcDataSource } from 'copcesium';
-import type { CopcDataSourceOptions } from 'copcesium';
+import type { ColorMode, CopcDataSourceOptions } from 'copcesium';
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN ?? '';
 
@@ -35,6 +35,22 @@ const pixelSizeSlider = document.getElementById('pixelSize') as HTMLInputElement
 const pixelSizeValue = document.getElementById('pixelSizeValue')!;
 const sseThresholdSlider = document.getElementById('sseThreshold') as HTMLInputElement;
 const sseThresholdValue = document.getElementById('sseThresholdValue')!;
+const colorModeSelect = document.getElementById('colorMode') as HTMLSelectElement;
+const classChecksEl = document.getElementById('classChecks')!;
+
+// ASPRS codes the classification palette covers, plus 1 (Unclassified), which
+// most of this sample's points carry.
+const CLASSES: [number, string][] = [
+  [1, 'Unclassified'],
+  [2, 'Ground'],
+  [3, 'Low Veg'],
+  [4, 'Med Veg'],
+  [5, 'High Veg'],
+  [6, 'Building'],
+  [9, 'Water'],
+  [10, 'Rail'],
+  [11, 'Road'],
+];
 
 let currentDs: CopcDataSource | null = null;
 
@@ -54,6 +70,8 @@ async function load(url: string, options: CopcDataSourceOptions = {}): Promise<v
       ...options,
       pixelSize: parseFloat(pixelSizeSlider.value),
       sseThreshold: parseFloat(sseThresholdSlider.value),
+      colorMode: colorModeSelect.value as ColorMode,
+      classificationFilter: readClassFilter(),
     });
     statusEl.textContent = 'Loaded';
   } catch (err) {
@@ -82,6 +100,32 @@ sseThresholdSlider.addEventListener('input', () => {
   sseThresholdValue.textContent = sseThresholdSlider.value;
   if (currentDs) currentDs.sseThreshold = parseFloat(sseThresholdSlider.value);
 });
+
+colorModeSelect.addEventListener('change', () => {
+  if (currentDs) currentDs.colorMode = colorModeSelect.value as ColorMode;
+});
+
+// All boxes ticked means "no filter" rather than "these nine codes" — a file
+// may carry codes this panel doesn't list, and they shouldn't vanish just
+// because nothing was unticked.
+function readClassFilter(): number[] | undefined {
+  const boxes = [...classChecksEl.querySelectorAll<HTMLInputElement>('input')];
+  if (boxes.every((box) => box.checked)) return undefined;
+  return boxes.filter((box) => box.checked).map((box) => Number(box.value));
+}
+
+for (const [code, name] of CLASSES) {
+  const label = document.createElement('label');
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.value = String(code);
+  box.checked = true;
+  box.addEventListener('change', () => {
+    if (currentDs) currentDs.classificationFilter = readClassFilter();
+  });
+  label.append(box, `${code} ${name}`);
+  classChecksEl.append(label);
+}
 
 urlInput.value = SAMPLE_URL;
 // CopcDataSource.load() flies the camera to the dataset itself (autoFrame,
