@@ -5,9 +5,10 @@ import type { LoadedNode } from '../types';
  * (measuring actual per-point GPU usage isn't cheap enough to be worth it —
  * see the issue's "alternatives considered").
  *
- * Backed by a `Map`, which preserves insertion order: `get`/`set` bump an
- * entry by deleting and re-inserting it, so the least-recently-used entry is
- * always whichever key iterates first.
+ * Backed by a `Map`, which preserves insertion order: `get`/`set`/`pin` bump
+ * an entry by deleting and re-inserting it, so the least-recently-used entry
+ * is always whichever key iterates first. `pin()` is what keeps that order
+ * meaningful in practice — see its doc comment.
  *
  * Never destroys GPU resources itself — evicted (or, on destroy(), all
  * remaining) nodes are handed to `onEvict` so the caller decides how to tear
@@ -59,9 +60,27 @@ export class NodeCache {
     this._evictOverBudget();
   }
 
-  /** Replaces the set of nodes currently protected from eviction. */
+  /**
+   * Replaces the set of nodes currently protected from eviction, and marks
+   * those nodes as used.
+   *
+   * The caller passes exactly the set that is on screen this pass, which is
+   * the only signal of use the cache gets: the per-frame visibility path
+   * reads through `peek()` and deliberately doesn't bump recency, so without
+   * this the backing Map would never leave insertion order and eviction
+   * would be FIFO by load time — systematically evicting the shallow
+   * ancestors first, since they load first and are exactly what a zoom-out
+   * needs back.
+   *
+   * That makes the eviction order least-recently-*selected*, at the LoD
+   * pass's `debounceMs` granularity, rather than strict LRU. Nodes selected
+   * in the same pass are equally recent; their relative order just follows
+   * `keys`.
+   */
   pin(keys: Set<string>): void {
     this.pinned = keys;
+    // get() re-inserts to refresh recency; the node itself isn't needed here.
+    for (const key of keys) this.get(key);
   }
 
   destroy(): void {

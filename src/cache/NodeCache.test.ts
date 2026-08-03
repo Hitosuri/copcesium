@@ -177,6 +177,37 @@ describe('NodeCache', () => {
     expect(onEvict).toHaveBeenCalledExactlyOnceWith('a', a);
   });
 
+  it('pin() bumps the recency of the nodes it pins, so a node never selected since load goes first', () => {
+    // Regression test for #68: pin() is the only signal of use the cache
+    // gets (the per-frame path reads via peek()), so without it the Map
+    // stays in insertion order and eviction is FIFO by load time.
+    const onEvict = vi.fn();
+    const cache = new NodeCache(2, onEvict);
+    const a = makeNode('a');
+    const b = makeNode('b');
+    const c = makeNode('c');
+
+    cache.set('a', a);
+    cache.set('b', b); // loaded at the same time as 'a', never selected after
+    cache.pin(new Set(['a'])); // 'a' is on screen this pass
+    cache.pin(new Set()); // a later pass: 'a' left the selection, unprotected
+    cache.set('c', c); // over budget -> 'b' is the least recently selected
+
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith('b', b);
+    expect(cache.peek('a')).toBe(a);
+  });
+
+  it('pin() ignores keys that are not cached yet, without creating entries for them', () => {
+    // _updateLoD() pins the whole selection, including nodes still in flight.
+    const cache = new NodeCache(10, vi.fn());
+    cache.set('a', makeNode('a'));
+
+    cache.pin(new Set(['a', 'still-loading']));
+
+    expect(cache.size).toBe(1);
+    expect(cache.peek('still-loading')).toBeUndefined();
+  });
+
   it('destroy() evicts every remaining node via onEvict', () => {
     const onEvict = vi.fn();
     const cache = new NodeCache(10, onEvict);
