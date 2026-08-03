@@ -3,6 +3,51 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-08-03
+
+### Added
+
+- **Point styling API: colour by RGB, intensity, classification, or
+  elevation, and filter by classification.** Colour was previously decided
+  in the worker and baked into a `Uint8Array` before the main thread saw
+  it, so restyling a cached node would have meant re-running `convertNode()`
+  — a fresh Range Request and LAZ decode per node. The worker now ships the
+  raw per-point attributes alongside the baked colour (Intensity as
+  `Uint16`, Classification as `Uint8`, elevation normalized over the header
+  range as `Uint16`), and the vertex shader picks the colour from a
+  `u_colorMode` uniform. `colorMode`, `classificationFilter`, and
+  `intensityRange` are exposed as both `CopcDataSourceOptions` and live
+  setters; the classification filter is a 256-bit allow-list, and
+  `intensityRange` auto-grows to the highest intensity seen unless pinned.
+  `'rgb'` keeps the existing baked colour untouched, so the default path is
+  unchanged. `ColorMode` is now exported from the package entry point. (#84)
+- **`examples/basic-viewer` gained `colorMode` and classification-filter
+  controls.** A colour-mode picker and a per-ASPRS-class checkbox row sit
+  alongside the existing `pixelSize`/`sseThreshold` sliders, wired to the
+  live setters so the styling API is demonstrable without a console. (#84)
+
+### Fixed
+
+- **`NodeCache` evicted FIFO by load time instead of LRU.** Nothing ever
+  bumped an entry's recency — every read went through `peek()`, which
+  deliberately doesn't bump — so the backing `Map` never left insertion
+  order and `_evictOverBudget()` systematically targeted the shallow
+  ancestors a zoom-out needs back. `pin()` now refreshes the recency of the
+  keys it pins (the on-screen set `_updateLoD()` already hands it), making
+  eviction least-recently-selected at `debounceMs` granularity. (#68)
+- **`laz-perf` was an undeclared direct dependency.** `src/worker/worker.ts`
+  imports `laz-perf/lib/worker` directly but relied on it resolving as
+  `copc`'s transitive dependency. It's now declared explicitly so the build
+  can't silently break if `copc`'s own dependency changes, and so it's
+  accurately identified for license auditing. (#81)
+
+### Changed
+
+- Added `THIRD_PARTY_LICENSES.md` documenting the notices for `copc`,
+  `laz-perf`, `proj4`, and their transitive dependencies bundled into
+  `dist/copc-cesium.mjs`, as MIT/BSD-2-Clause/Apache-2.0 require on
+  redistribution. (#80)
+
 ## [1.0.3] - 2026-08-03
 
 ### Fixed
