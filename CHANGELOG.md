@@ -43,6 +43,14 @@ All notable changes to this project are documented here. This project follows
 
 ### Changed
 
+- **Node positions are emitted as node-relative `Float32` offsets with a
+  double-precision origin baked into the primitive's model matrix.**
+  Positions now leave the worker as `Float32` offsets from the node origin
+  (the first point's ECEF), with the origin carried separately. This halves
+  the worker→main transfer (12 vs 24 bytes/point) and removes the
+  main-thread RTE high/low split (`EncodedCartesian3.encode`, run 3n times
+  per node) entirely — precision now lives in the origin rather than in a
+  per-coordinate split. (#85)
 - Added `THIRD_PARTY_LICENSES.md` documenting the notices for `copc`,
   `laz-perf`, `proj4`, and their transitive dependencies bundled into
   `dist/copc-cesium.mjs`, as MIT/BSD-2-Clause/Apache-2.0 require on
