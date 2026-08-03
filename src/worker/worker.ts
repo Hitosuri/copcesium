@@ -135,12 +135,22 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
   }
   const colorScale = maxColor > 255 ? 65535 : 255;
 
-  const positions = new Float64Array(n * 3);
+  // Positions leave the worker as Float32 offsets from the node origin (the
+  // first point's ECEF), with the double-precision origin carried separately
+  // and baked into the primitive's model matrix on the main thread. This
+  // halves the wire size (12 vs 24 bytes/point) and lets the render thread skip
+  // the RTE high/low split entirely — precision now lives in the origin, not in
+  // splitting each absolute coordinate. Offsets stay within a node's extent, so
+  // a single float32 holds them to sub-millimeter precision.
+  const positions = new Float32Array(n * 3);
   const colors = new Uint8Array(n * 4);
   const intensities = new Uint16Array(n);
   const classifications = new Uint8Array(n);
   const elevations = new Uint16Array(n);
   let maxIntensity = 0;
+  let ox = 0;
+  let oy = 0;
+  let oz = 0;
 
   // A flat dataset (or a header that reports one) leaves every point at the
   // bottom of the ramp rather than dividing by zero.
@@ -166,10 +176,16 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     const alt = z * zFactor + geoidOffset;
     const [ecefX, ecefY, ecefZ] = lonLatAltToEcef(lon, lat, alt);
 
+    if (i === 0) {
+      ox = ecefX;
+      oy = ecefY;
+      oz = ecefZ;
+    }
+
     const i3 = i * 3;
-    positions[i3] = ecefX;
-    positions[i3 + 1] = ecefY;
-    positions[i3 + 2] = ecefZ;
+    positions[i3] = ecefX - ox;
+    positions[i3 + 1] = ecefY - oy;
+    positions[i3 + 2] = ecefZ - oz;
 
     const cls = getCls ? getCls(i) & 0xff : 0;
     classifications[i] = cls;
@@ -200,7 +216,7 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     colors[i4 + 3] = 255;
   }
 
-  return { positions, colors, intensities, classifications, elevations, pointCount: n, maxIntensity };
+  return { positions, origin: [ox, oy, oz], colors, intensities, classifications, elevations, pointCount: n, maxIntensity };
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {

@@ -263,7 +263,8 @@ describe('CopcDataSource.load', () => {
 });
 
 const renderData: NodeRenderData = {
-  positions: new Float64Array([6378137, 0, 0]),
+  positions: new Float32Array([0, 0, 0]),
+  origin: [6378137, 0, 0],
   colors: new Uint8Array([255, 0, 0, 255]),
   intensities: new Uint16Array([1000]),
   classifications: new Uint8Array([2]),
