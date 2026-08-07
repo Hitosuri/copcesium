@@ -48,6 +48,11 @@ const SAMPLE_DATASETS: SampleDataset[] = [
     url: 'https://s3.amazonaws.com/hobu-lidar/millsite.copc.laz',
     options: {},
   },
+  {
+    label: 'Trestle Bridge — Fort Leonard Wood, Missouri, USA (~325 MB)',
+    url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
+    options: {},
+  },
 ];
 
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;

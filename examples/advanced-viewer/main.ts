@@ -56,6 +56,10 @@ const PRESETS: Record<string, PresetConfig> = {
     label: 'SoFi Stadium',
     url: 'https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz',
   },
+  millsite: {
+    label: 'Millsite Reservoir',
+    url: 'https://s3.amazonaws.com/hobu-lidar/millsite.copc.laz',
+  },
   trestle: {
     label: 'Trestle Bridge',
     url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
