@@ -13,6 +13,15 @@ import type { ColorMode, CopcDataSourceOptions } from 'copcesium';
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN ?? '';
 
+// Without a valid VITE_CESIUM_TOKEN this silently falls back to the flat
+// WGS84 ellipsoid (no error dialog) — logging here makes that failure mode
+// visible, since a flat fallback also throws off the camera controller's
+// rotate/tilt pivot picking (it's calibrated against real terrain height).
+const worldTerrain = Cesium.Terrain.fromWorldTerrain();
+worldTerrain.errorEvent.addEventListener((err) => {
+  console.error('[main] World Terrain failed to load (check VITE_CESIUM_TOKEN):', err);
+});
+
 const viewer = new Cesium.Viewer('cesiumContainer', {
   baseLayerPicker: false,
   sceneModePicker: false,
@@ -22,7 +31,7 @@ const viewer = new Cesium.Viewer('cesiumContainer', {
   homeButton: false,
   navigationHelpButton: false,
   fullscreenButton: false,
-  terrain: Cesium.Terrain.fromWorldTerrain(),
+  terrain: worldTerrain,
   // Static point-cloud viewer with no animated entities — render only when
   // something actually changes (camera move, tile load, or CopcDataSource
   // touching the scene) instead of every frame.
@@ -31,17 +40,22 @@ const viewer = new Cesium.Viewer('cesiumContainer', {
 (viewer.cesiumWidget.creditContainer as HTMLElement).style.display = 'none';
 
 // ── Preset datasets ─────────────────────────────────────────
-// Public COPC samples from https://github.com/PDAL/data — only sources that
-// don't require bundling a local file, so this example runs standalone.
+// Freely streamable public COPC files (HTTP range requests, no auth). `size`
+// is the full file size (measured via HTTP HEAD), not what gets downloaded —
+// copcesium only fetches the octree nodes needed for the current view. Autzen
+// stays first as the project's default demo; the rest are sorted by size,
+// ascending.
 interface PresetConfig {
   label: string;
   url: string;
+  size: string;
   options?: CopcDataSourceOptions;
 }
 const PRESETS: Record<string, PresetConfig> = {
   autzen: {
     label: 'Autzen Stadium',
     url: 'https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz',
+    size: '~81 MB',
     options: {
       // Oregon Lambert (feet) — supplied explicitly rather than relying on
       // CRS auto-detection.
@@ -52,13 +66,110 @@ const PRESETS: Record<string, PresetConfig> = {
       geoidOffset: -20,
     },
   },
-  sofi: {
-    label: 'SoFi Stadium',
-    url: 'https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz',
+  usgsBreaklineEval: {
+    label: 'USGS Breakline Eval',
+    url: 'https://s3.amazonaws.com/hobu-lidar/usgs-breakline-eval.copc.laz',
+    size: '~521 KB',
+  },
+  cnTowerHag: {
+    label: 'CN Tower (Height Above Ground)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/cn-tower-20-50m-HAG.copc.laz',
+    size: '~7.3 MB',
+  },
+  icesatTest: {
+    label: 'ICESat Test',
+    url: 'https://s3.amazonaws.com/hobu-lidar/icesat-test.copc.laz',
+    size: '~7.5 MB',
+  },
+  redrocksLarge: {
+    label: 'Red Rocks (Large)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.large.copc.laz',
+    size: '~13.2 MB',
+  },
+  redrocksMedium: {
+    label: 'Red Rocks (Medium)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.medium.copc.laz',
+    size: '~16.6 MB',
+  },
+  hobuOffice: {
+    label: 'Hobu Office (Random Forest Model)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/hobu-office-random-forest-ma-model.copc.laz',
+    size: '~19.1 MB',
+  },
+  redrocksSmall: {
+    label: 'Red Rocks (Small)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.small.copc.laz',
+    size: '~20.8 MB',
+  },
+  autzenNoGround: {
+    label: 'Autzen (No Ground, H3-indexed)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen-classified-no-ground.copc.laz',
+    size: '~30.8 MB',
+  },
+  autzenEcefLarge: {
+    label: 'Autzen (Large)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.large.copc.laz',
+    size: '~70.0 MB',
+  },
+  kate: {
+    label: 'Kate',
+    url: 'https://s3.amazonaws.com/hobu-lidar/kate.copc.laz',
+    size: '~71.9 MB',
+  },
+  autzenEcefMedium: {
+    label: 'Autzen (Medium)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.medium.copc.laz',
+    size: '~80.9 MB',
+  },
+  autzenEcefSmall: {
+    label: 'Autzen (Small)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.small.copc.laz',
+    size: '~89.5 MB',
+  },
+  niagara: {
+    label: 'Niagara Region',
+    url: 'https://canelevation-lidar-point-clouds.s3.ca-central-1.amazonaws.com/pointclouds_nuagespoints/NRCAN/Hamilton_Niagara_2021_2/ON_Niagara_20210525_NAD83CSRS_UTM17N_1km_E656_N4771_CLASS.copc.laz',
+    size: '~140.3 MB',
   },
   trestle: {
     label: 'Trestle Bridge',
     url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
+    size: '~324.8 MB',
+  },
+  wiClark: {
+    label: 'Clark County',
+    url: 'https://s3.amazonaws.com/hobu-lidar/WI_Clark_TL_2018.copc.laz',
+    size: '~881.5 MB',
+  },
+  millsite: {
+    label: 'Millsite Reservoir',
+    url: 'https://s3.amazonaws.com/hobu-lidar/millsite.copc.laz',
+    size: '~1.4 GB',
+  },
+  dales3d: {
+    label: 'DALES 3D (Training Split)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/dales3d-train.copc.laz',
+    size: '~1.8 GB',
+  },
+  sofi: {
+    label: 'SoFi Stadium',
+    url: 'https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz',
+    size: '~2.0 GB',
+  },
+  iowa3dep: {
+    label: 'Iowa 3DEP (2019–2020)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/iowa-50m-3dep-2019-2020.copc.laz',
+    size: '~3.6 GB',
+  },
+  nyc: {
+    label: 'New York City',
+    url: 'https://s3.amazonaws.com/hobu-lidar/nyc.copc.laz',
+    size: '~26.5 GB',
+  },
+  montreal: {
+    label: 'Montreal 2015',
+    url: 'https://s3.amazonaws.com/hobu-lidar/montreal-2015.copc.laz',
+    size: '~51.9 GB',
   },
 };
 
@@ -343,7 +454,8 @@ function renderPresetList(activeKey: string | null): void {
     btn.className = `dataset-row${activeKey === key ? ' active' : ''}`;
     btn.innerHTML =
       `<span class="dataset-dot"></span>` +
-      `<span class="dataset-name">${p.label}</span>`;
+      `<span class="dataset-name">${p.label}</span>` +
+      `<span class="dataset-pts">${p.size}</span>`;
     btn.addEventListener('click', () => {
       setActivePreset(key);
       urlInput.value = p.url;

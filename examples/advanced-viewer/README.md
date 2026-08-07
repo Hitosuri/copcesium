@@ -17,7 +17,9 @@ registry, not from this repo's `src/`.
 
 ```bash
 npm install
-cp .env.example .env   # optionally set VITE_CESIUM_TOKEN for Cesium Ion terrain/imagery
+cp .env.example .env   # set VITE_CESIUM_TOKEN for Cesium Ion terrain/imagery — without it,
+                        # World Terrain silently falls back to a flat ellipsoid, which also
+                        # throws off the camera's rotate/tilt pivot near the loaded dataset
 npm run dev
 ```
 
