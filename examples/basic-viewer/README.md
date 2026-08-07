@@ -5,6 +5,10 @@ viewer using the published `copcesium` npm package. This is a standalone
 project — it installs `copcesium` from the npm registry, not from this
 repo's `src/`.
 
+The "sample data" dropdown switches between a few freely streamable public
+COPC files (see `SAMPLE_DATASETS` in `main.ts`), or paste any COPC URL into
+the text field and click Load.
+
 ## Run
 
 ```bash
