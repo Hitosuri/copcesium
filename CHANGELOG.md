@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-08-07
+
+### Fixed
+
+- **In-flight node fetches are now cancelled when they fall out of the LoD
+  selection.** A load still in flight for a key the camera had moved past
+  kept decoding data nobody would show, holding a worker slot the current
+  selection needed. `WorkerPool.run()` tasks now expose a `cancel()`, and
+  `CopcDataSource` calls it for any pending key that drops out of the new
+  selection each update; the resulting `AbortError` is treated as expected
+  and not logged as a failure. (#86)
+- **`THIRD_PARTY_LICENSES.md` no longer lists packages that aren't actually
+  bundled.** `node-fetch`, `whatwg-url`, `tr46`, and `webidl-conversions`
+  were listed as bundled because they're `cross-fetch`'s dependencies — but
+  only for its Node.js entry point. This is a browser build, so Vite
+  resolves `cross-fetch`'s browser field instead, a self-contained
+  XHR-based polyfill with no dependency on that chain.
+
 ## [1.1.0] - 2026-08-03
 
 ### Added
