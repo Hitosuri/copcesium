@@ -20,15 +20,17 @@ interface SampleDataset {
   options: CopcDataSourceOptions;
 }
 
-// Freely streamable public COPC files (HTTP range requests, no auth). Sizes are
-// the full file size, not what gets downloaded — copcesium only fetches the
-// octree nodes needed for the current view.
+// Freely streamable public COPC files (HTTP range requests, no auth). Sizes
+// are the full file size (measured via HTTP HEAD), not what gets downloaded —
+// copcesium only fetches the octree nodes needed for the current view. Autzen
+// stays first as the project's default demo; the rest are sorted by size,
+// ascending.
 const SAMPLE_DATASETS: SampleDataset[] = [
   {
     // https://github.com/PDAL/data/tree/main/autzen — Oregon Lambert (feet),
     // so proj/projDef/geoidOffset are supplied explicitly instead of relying
     // on CRS auto-detection.
-    label: 'Autzen Stadium — Eugene, Oregon, USA (~80 MB)',
+    label: 'Autzen Stadium — Eugene, Oregon, USA (~81 MB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz',
     options: {
       proj: 'EPSG:2992', // EPSG code of the point cloud's source CRS
@@ -39,8 +41,78 @@ const SAMPLE_DATASETS: SampleDataset[] = [
     },
   },
   {
-    label: 'SoFi Stadium — Inglewood, California, USA (~2.3 GB)',
-    url: 'https://s3.amazonaws.com/hobu-lidar/sofi.copc.laz',
+    label: 'USGS Breakline Eval — Adams/Juneau County, Wisconsin, USA (~521 KB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/usgs-breakline-eval.copc.laz',
+    options: {},
+  },
+  {
+    label: 'CN Tower (Height Above Ground) — Toronto, Canada (~7.3 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/cn-tower-20-50m-HAG.copc.laz',
+    options: {},
+  },
+  {
+    label: 'ICESat Test — spaceborne lidar sample (~7.5 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/icesat-test.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Red Rocks (Large) — Colorado, USA (~13.2 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.large.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Red Rocks (Medium) — Colorado, USA (~16.6 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.medium.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Hobu Office (Random Forest Model) (~19.1 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/hobu-office-random-forest-ma-model.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Red Rocks (Small) — Colorado, USA (~20.8 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.small.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Autzen (No Ground, H3-indexed) — Eugene, Oregon, USA (~30.8 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen-classified-no-ground.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Autzen (Large) — Eugene, Oregon, USA (~70.0 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.large.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Kate (~71.9 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/kate.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Autzen (Medium) — Eugene, Oregon, USA (~80.9 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.medium.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Autzen (Small) — Eugene, Oregon, USA (~89.5 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/autzen.small.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Niagara Region — Ontario, Canada (~140.3 MB)',
+    url: 'https://canelevation-lidar-point-clouds.s3.ca-central-1.amazonaws.com/pointclouds_nuagespoints/NRCAN/Hamilton_Niagara_2021_2/ON_Niagara_20210525_NAD83CSRS_UTM17N_1km_E656_N4771_CLASS.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Trestle Bridge — Fort Leonard Wood, Missouri, USA (~324.8 MB)',
+    url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Clark County — Wisconsin, USA (~881.5 MB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/WI_Clark_TL_2018.copc.laz',
     options: {},
   },
   {
@@ -49,8 +121,28 @@ const SAMPLE_DATASETS: SampleDataset[] = [
     options: {},
   },
   {
-    label: 'Trestle Bridge — Fort Leonard Wood, Missouri, USA (~325 MB)',
-    url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
+    label: 'DALES 3D (Training Split) (~1.8 GB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/dales3d-train.copc.laz',
+    options: {},
+  },
+  {
+    label: 'SoFi Stadium — Inglewood, California, USA (~2.0 GB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/sofi.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Iowa 3DEP (2019–2020) — Iowa, USA (~3.6 GB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/iowa-50m-3dep-2019-2020.copc.laz',
+    options: {},
+  },
+  {
+    label: 'New York City — USA, citywide (~26.5 GB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/nyc.copc.laz',
+    options: {},
+  },
+  {
+    label: 'Montreal 2015 — Quebec, Canada (~51.9 GB)',
+    url: 'https://s3.amazonaws.com/hobu-lidar/montreal-2015.copc.laz',
     options: {},
   },
 ];
