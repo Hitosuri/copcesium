@@ -236,4 +236,58 @@ describe('WorkerPool', () => {
 
     expect(spy).toHaveBeenCalledWith({ id: 0, payload: 'a' }, [buffer]);
   });
+
+  describe('cancel()', () => {
+    it('rejects a still-queued task immediately, without sending anything to a worker', async () => {
+      const { factory, fakeWorkers } = makeFactory();
+      const pool = new WorkerPool(factory, 1);
+
+      void pool.run('a'); // occupies the only worker
+      const queued = pool.run('b');
+      const caught = queued.catch((err) => err);
+
+      queued.cancel();
+
+      const err = await caught;
+      expect(err.name).toBe('AbortError');
+      expect(fakeWorkers[0].received).toEqual([{ id: 0, payload: 'a' }]); // 'b' never dispatched
+    });
+
+    it('sends a cancel message to the worker running a dispatched task, and settles once it responds', async () => {
+      const { factory, fakeWorkers } = makeFactory();
+      const pool = new WorkerPool(factory, 1);
+
+      const promise = pool.run('a');
+      promise.cancel();
+
+      expect(fakeWorkers[0].received).toEqual([{ id: 0, payload: 'a' }, { id: 0, cancel: true }]);
+
+      // the task isn't settled just because cancel() was called — only once
+      // the worker actually responds, same as any other in-flight task
+      const err = { name: 'AbortError', message: 'The operation was aborted.' };
+      fakeWorkers[0].reply({ error: err });
+      await expect(promise).rejects.toThrow(err.message);
+
+      // the worker is freed and reusable afterwards
+      const second = pool.run<string>('b');
+      expect(fakeWorkers[0].received).toEqual([
+        { id: 0, payload: 'a' },
+        { id: 0, cancel: true },
+        { id: 1, payload: 'b' },
+      ]);
+      fakeWorkers[0].reply({ result: 'b-done' });
+      await expect(second).resolves.toBe('b-done');
+    });
+
+    it('is a no-op once the task has already settled', async () => {
+      const { factory, fakeWorkers } = makeFactory();
+      const pool = new WorkerPool(factory, 1);
+
+      const promise = pool.run('a');
+      fakeWorkers[0].reply({ result: 'done' });
+      await promise;
+
+      expect(() => promise.cancel()).not.toThrow();
+    });
+  });
 });

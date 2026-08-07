@@ -66,6 +66,7 @@ export class CopcDataSource {
   private readonly _workerPool: WorkerPool;
   private readonly _ownsPool: boolean;
   private readonly _pendingKeys = new Set<string>();
+  private readonly _cancels = new Map<string, () => void>();
   private readonly _sphereCache = new Map<string, Cesium.BoundingSphere>();
   private _selectedKeys = new Set<string>();
   private _isUpdating = false;
@@ -258,6 +259,13 @@ export class CopcDataSource {
         }),
       );
 
+      // A load still in flight for a key the camera has since moved past is
+      // decoding data nobody will show; cancel it so its worker slot frees up
+      // for the current selection instead (#86).
+      for (const key of this._pendingKeys) {
+        if (!newSelectedKeys.has(key)) this._cancels.get(key)?.();
+      }
+
       let sceneChanged = false;
 
       // Show/load the new selection first, so a just-arrived replacement
@@ -343,7 +351,9 @@ export class CopcDataSource {
         zMin: this._copc.header.min[2],
         zMax: this._copc.header.max[2],
       };
-      const renderData = await this._workerPool.run<NodeRenderData>(payload);
+      const task = this._workerPool.run<NodeRenderData>(payload);
+      this._cancels.set(key, task.cancel);
+      const renderData = await task;
       if (this._destroyed) return;
 
       const boundingSphere = this._getSphere(key);
@@ -363,9 +373,13 @@ export class CopcDataSource {
       this._viewer.scene.requestRender();
     } catch (err) {
       if (this._destroyed) return;
+      // Cancelled because the selection moved on (see the deselect loop in
+      // _updateLoD) — expected, not a failure worth logging.
+      if ((err as Error).name === 'AbortError') return;
       console.error(`[CopcDataSource] Failed to load node "${key}":`, err);
     } finally {
       this._pendingKeys.delete(key);
+      this._cancels.delete(key);
     }
   }
 

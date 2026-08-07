@@ -334,6 +334,49 @@ describe('CopcDataSource update loop', () => {
     expect(workerPoolRun).toHaveBeenCalledTimes(1); // never re-dispatched to the worker
   });
 
+  it('cancels a still-pending load when its key drops out of the LoD selection', async () => {
+    mockCopc(undefined);
+    const cancelSpy = vi.fn();
+    const pending = new Promise<NodeRenderData>(() => {}) as Promise<NodeRenderData> & { cancel: () => void };
+    pending.cancel = cancelSpy;
+    workerPoolRun.mockReturnValueOnce(pending);
+    const { viewer, triggerUpdate } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate(); // dispatches the load for '0-0-0-0'; it never resolves
+
+    selectNodesMock.mockReturnValue([]); // camera moved on before it finished
+    triggerUpdate();
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not log an error for a load cancelled by the selection moving on', async () => {
+    mockCopc(undefined);
+    let reject!: (err: Error) => void;
+    const pending = new Promise<NodeRenderData>((_resolve, rej) => {
+      reject = rej;
+    }) as Promise<NodeRenderData> & { cancel: () => void };
+    pending.cancel = () => {
+      const err = new Error('cancelled');
+      err.name = 'AbortError';
+      reject(err);
+    };
+    workerPoolRun.mockReturnValueOnce(pending);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { viewer, triggerUpdate } = makeFakeViewer();
+
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+
+    selectNodesMock.mockReturnValue([]);
+    triggerUpdate(); // triggers pending.cancel(), rejecting with AbortError
+    await pending.catch(() => {}); // let _loadNode's catch/finally settle
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   it('hides a selected node when it falls out of the live frustum, without re-dispatching or evicting it', async () => {
     mockCopc(undefined);
     workerPoolRun.mockResolvedValueOnce(renderData);
