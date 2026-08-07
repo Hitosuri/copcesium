@@ -13,6 +13,15 @@ import type { ColorMode, CopcDataSourceOptions } from 'copcesium';
 
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN ?? '';
 
+// Without a valid VITE_CESIUM_TOKEN this silently falls back to the flat
+// WGS84 ellipsoid (no error dialog) — logging here makes that failure mode
+// visible, since a flat fallback also throws off the camera controller's
+// rotate/tilt pivot picking (it's calibrated against real terrain height).
+const worldTerrain = Cesium.Terrain.fromWorldTerrain();
+worldTerrain.errorEvent.addEventListener((err) => {
+  console.error('[main] World Terrain failed to load (check VITE_CESIUM_TOKEN):', err);
+});
+
 const viewer = new Cesium.Viewer('cesiumContainer', {
   baseLayerPicker: false,
   sceneModePicker: false,
@@ -22,7 +31,7 @@ const viewer = new Cesium.Viewer('cesiumContainer', {
   homeButton: false,
   navigationHelpButton: false,
   fullscreenButton: false,
-  terrain: Cesium.Terrain.fromWorldTerrain(),
+  terrain: worldTerrain,
   // Static point-cloud viewer with no animated entities — render only when
   // something actually changes (camera move, tile load, or CopcDataSource
   // touching the scene) instead of every frame.
