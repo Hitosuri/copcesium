@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { View } from 'copc';
 
 const loadPointDataView = vi.fn();
@@ -21,7 +21,7 @@ function proj4Mock(..._args: unknown[]) {
 proj4Mock.defs = (...args: unknown[]) => proj4Defs(...args);
 vi.mock('proj4', () => ({ default: proj4Mock }));
 
-const { convertNode, lonLatAltToEcef } = await import('./worker');
+const { convertNode, createRangeGetter, lonLatAltToEcef } = await import('./worker');
 
 /** Builds a fake `copc` View backed by plain arrays, matching the real
  * getter contract: throws for a dimension that wasn't supplied. */
@@ -233,5 +233,85 @@ describe('convertNode', () => {
     const callsSoFar = lazPerfCreate.mock.calls.length;
     await convertNode(BASE_PAYLOAD);
     expect(lazPerfCreate.mock.calls.length).toBe(callsSoFar);
+  });
+});
+
+describe('createRangeGetter', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('requests an inclusive-end byte range as an HTTP Range header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ arrayBuffer: async () => new ArrayBuffer(0) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createRangeGetter('https://example.com/file.copc.laz')(100, 200);
+
+    expect(fetchMock).toHaveBeenCalledWith('https://example.com/file.copc.laz', {
+      headers: { Range: 'bytes=100-199' },
+      signal: undefined,
+    });
+  });
+
+  it('forwards the abort signal to fetch, so cancelling it can stop the request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ arrayBuffer: async () => new ArrayBuffer(0) });
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await createRangeGetter('https://example.com/file.copc.laz', controller.signal)(0, 10);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.com/file.copc.laz',
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+});
+
+describe('worker message handling', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('aborts the in-flight conversion when a cancel message for the same id arrives', async () => {
+    const postMessageMock = vi.fn();
+    vi.stubGlobal('postMessage', postMessageMock);
+    const fetchMock = vi.fn(
+      (_url: string, opts: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const rejectAborted = () => {
+            const err = new Error('The operation was aborted.');
+            err.name = 'AbortError';
+            reject(err);
+          };
+          // The cancel message (and thus controller.abort()) may already have
+          // run by the time this mock's fetch() call is reached — convertNode
+          // suspends on `await getLazPerf()` first — so the signal can arrive
+          // here already aborted, with no future 'abort' event left to catch.
+          if (opts.signal?.aborted) rejectAborted();
+          else opts.signal?.addEventListener('abort', rejectAborted);
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    // Mimics what a real (unmocked) loadPointDataView does: pull bytes through
+    // the getter it was given, so aborting that getter's fetch is what should
+    // actually cancel this conversion.
+    loadPointDataView.mockImplementationOnce(async (getter: (begin: number, end: number) => Promise<Uint8Array>) => {
+      await getter(0, 10);
+      return makeView({ X: [0], Y: [0], Z: [0] });
+    });
+
+    const onmessage = self.onmessage as unknown as (e: MessageEvent) => Promise<void>;
+    const handled = onmessage({ data: { id: 1, payload: BASE_PAYLOAD } } as MessageEvent);
+    await onmessage({ data: { id: 1, cancel: true } } as MessageEvent);
+    await handled;
+
+    expect(postMessageMock).toHaveBeenCalledWith({
+      id: 1,
+      error: { name: 'AbortError', message: expect.any(String) },
+    });
+  });
+
+  it('ignores a cancel message whose id has no matching in-flight task', () => {
+    expect(() => {
+      void (self.onmessage as unknown as (e: MessageEvent) => Promise<void>)({
+        data: { id: 999, cancel: true },
+      } as MessageEvent);
+    }).not.toThrow();
   });
 });

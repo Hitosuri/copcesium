@@ -19,6 +19,15 @@ export interface WorkerResponse {
   error?: { name: string; message: string };
 }
 
+/** Sent to a worker to abort the in-flight task with the matching `id`. */
+export interface WorkerCancelRequest {
+  id: number;
+  cancel: true;
+}
+
+/** A `run()` result whose underlying task can be abandoned early. */
+export type CancellablePromise<T> = Promise<T> & { cancel: () => void };
+
 interface Task {
   id: number;
   message: unknown;
@@ -64,12 +73,15 @@ export class WorkerPool {
    *   never returns would otherwise wedge that node forever, since nothing
    *   else would ever remove it from `pending`.
    */
-  run<T>(message: unknown, transfer: Transferable[] = [], timeoutMs = 30_000): Promise<T> {
+  run<T>(message: unknown, transfer: Transferable[] = [], timeoutMs = 30_000): CancellablePromise<T> {
     if (this.destroyed) {
-      return Promise.reject(new Error('WorkerPool: run() called after destroy()'));
+      const rejected = Promise.reject(new Error('WorkerPool: run() called after destroy()')) as CancellablePromise<T>;
+      rejected.cancel = () => {};
+      return rejected;
     }
-    return new Promise<T>((resolve, reject) => {
-      const task: Task = {
+    let task!: Task;
+    const promise = new Promise<T>((resolve, reject) => {
+      task = {
         id: this.nextId++,
         message,
         transfer,
@@ -78,7 +90,9 @@ export class WorkerPool {
         timer: setTimeout(() => this._handleTimeout(task), timeoutMs),
       };
       this._dispatch(task);
-    });
+    }) as CancellablePromise<T>;
+    promise.cancel = () => this._cancel(task);
+    return promise;
   }
 
   destroy(): void {
@@ -148,6 +162,31 @@ export class WorkerPool {
     if (queueIndex !== -1) {
       this.queue.splice(queueIndex, 1);
       task.reject(new Error('WorkerPool: task timed out waiting for an idle worker'));
+    }
+  }
+
+  /**
+   * A task still in `queue` never reached a worker, so it can be rejected
+   * immediately. One already `pending` on a worker needs that worker to stop
+   * — cross-thread `AbortSignal`s don't propagate on their own, so a `cancel`
+   * message is sent instead, and the task settles normally once the worker's
+   * own abort turns into a WorkerResponse (`_handleMessage`/`_handleTimeout`
+   * remain the only things that resolve/reject it or free its worker slot).
+   */
+  private _cancel(task: Task): void {
+    const queueIndex = this.queue.indexOf(task);
+    if (queueIndex !== -1) {
+      this.queue.splice(queueIndex, 1);
+      clearTimeout(task.timer);
+      const err = new Error('WorkerPool: task cancelled before it reached a worker');
+      err.name = 'AbortError';
+      task.reject(err);
+      return;
+    }
+    for (const [worker, pending] of this.pending) {
+      if (pending !== task) continue;
+      worker.postMessage({ id: task.id, cancel: true } satisfies WorkerCancelRequest);
+      return;
     }
   }
 
