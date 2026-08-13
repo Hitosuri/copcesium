@@ -1,0 +1,79 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cesiumContainer {
+  width: 100%;
+  height: 100%;
+}
+
+.panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  background: white;
+  padding: 10px;
+  font: 13px sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+}
+
+.panel label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.datasetLabel {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.datasetLabel select {
+  width: 100%;
+  min-width: 0;
+}
+
+.urlInput {
+  width: 100%;
+}
+
+.classChecks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.classChecks label {
+  justify-content: flex-start;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.panel hr {
+  border: none;
+  border-top: 1px solid #ddd;
+}
+
+.error {
+  color: red;
+  white-space: pre-wrap;
+}
+
+.status {
+  color: #555;
+}

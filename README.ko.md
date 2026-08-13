@@ -204,6 +204,11 @@ CORS, Range Request, 좌표가 엉뚱한 위치에 찍히는 문제는 [Troubles
 
 [`examples/basic-viewer`](./examples/basic-viewer)는 이 저장소의 `src/`가 아니라 npm 레지스트리에서 `copcesium`을 설치해 쓰는 최소한의 독립 프로젝트입니다 — URL 입력창, `pixelSize`/`sseThreshold` 슬라이더, `colorMode` 선택 박스, 분류별 필터 체크박스, "Remove & reload" 버튼, 화면에 표시되는 에러 영역이 있습니다. 공개 샘플 데이터셋([Autzen Stadium](https://github.com/PDAL/data/tree/main/autzen))을 자동으로 로드합니다.
 
+copcesium은 프레임워크에 종속되지 않지만, Cesium 사용의 상당수는 React를 통해 이루어집니다 — 아래 두 예제가 그 통합 방식을 보여줍니다:
+
+- [`examples/react-viewer`](./examples/react-viewer) — 같은 최소 구성의 뷰어를 순수 React 컴포넌트(`useRef`/`useEffect`, 별도 래퍼 라이브러리 없음)로 구현한 예제.
+- [`examples/react-resium-viewer`](./examples/react-resium-viewer) — [resium](https://resium.reearth.io/) 기반의 스타일링된 사이드바 뷰어로, resium의 `useCesium()` 훅을 통해 `copcesium`의 명령형 API에 접근합니다.
+
 ```bash
 git clone https://github.com/Jangmyun/copcesium.git
 cd copcesium/examples/basic-viewer
@@ -212,7 +217,7 @@ cp .env.example .env   # 필요하면 VITE_CESIUM_TOKEN에 본인의 Cesium Ion 
 npm run dev
 ```
 
-터미널에 출력되는 로컬 URL을 브라우저로 열면 됩니다.
+터미널에 출력되는 로컬 URL을 브라우저로 열면 됩니다. `examples/` 아래의 각 예제는 모두 같은 방식으로 실행합니다 — 각 디렉터리에서 `npm install && npm run dev`.
 
 ## 기여하기
 

@@ -1,0 +1,28 @@
+{
+  "name": "copcesium-example-react-resium-viewer",
+  "version": "1.1.0",
+  "private": true,
+  "description": "React example: a styled sidebar COPC viewer built on copcesium and resium",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:src": "vite --mode src",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cesium": "^1.143.0",
+    "copcesium": "^1.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "resium": "^1.25.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.3",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}

@@ -209,6 +209,11 @@ Full details — the detection flow, the proj4 fallback table, vertical-unit (`z
 
 [`examples/basic-viewer`](./examples/basic-viewer) is a minimal, standalone project that installs `copcesium` from the npm registry (not from this repo's `src/`) — a URL input, `pixelSize`/`sseThreshold` sliders, a `colorMode` picker, per-class filter checkboxes, a "Remove & reload" button, and an on-screen error area. It loads a public sample dataset ([Autzen Stadium](https://github.com/PDAL/data/tree/main/autzen)) automatically.
 
+copcesium is framework-agnostic, but a large share of Cesium usage happens through React — two more examples show that integration:
+
+- [`examples/react-viewer`](./examples/react-viewer) — the same minimal viewer, from a plain React component (`useRef`/`useEffect`, no wrapper library).
+- [`examples/react-resium-viewer`](./examples/react-resium-viewer) — a styled sidebar viewer built on [resium](https://resium.reearth.io/), reaching `copcesium`'s imperative API via resium's `useCesium()` hook.
+
 ```bash
 git clone https://github.com/Jangmyun/copcesium.git
 cd copcesium/examples/basic-viewer
@@ -217,7 +222,7 @@ cp .env.example .env   # optionally set VITE_CESIUM_TOKEN for Cesium Ion imagery
 npm run dev
 ```
 
-Then open the printed local URL in a browser.
+Then open the printed local URL in a browser. Each example under `examples/` is run the same way — `npm install && npm run dev` from its own directory.
 
 ## Contributing
 
