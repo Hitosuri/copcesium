@@ -22,7 +22,7 @@
     "build": "vite build && tsc --emitDeclarationOnly",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"examples/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"examples/**/*.ts\" \"examples/**/*.tsx\"",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "coverage:badges": "istanbul-badges-readme",
