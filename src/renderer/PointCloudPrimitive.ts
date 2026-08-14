@@ -16,6 +16,8 @@ export interface PointStyle {
   intensityRange: Cesium.Cartesian2;
   /** The 256-bit classification allow-list, as the 2 ivec4s `buildClassMask` packs. */
   classMask: Cesium.Cartesian4[];
+  /** Alpha multiplier applied to every point's colour, 0..1. */
+  opacity: number;
   /**
    * Meters to shift every point along its node's local "up" (the ECEF
    * direction from Earth's center through the node origin), for correcting a
@@ -44,7 +46,8 @@ interface CesiumInternal {
   };
   DrawCommand: new (opts: Record<string, unknown>) => unknown;
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
-  Pass: { OPAQUE: unknown };
+  Pass: { OPAQUE: unknown; TRANSLUCENT: unknown };
+  BlendingState: { ALPHA_BLEND: unknown };
 }
 const CesiumAny = Cesium as unknown as CesiumInternal;
 
@@ -58,6 +61,7 @@ export class PointCloudPrimitive {
   private _origin: [number, number, number];
   private _up: Cesium.Cartesian3;
   private _appliedHeightOffset: number;
+  private _appliedOpaque: boolean;
   private _colors: Uint8Array | null;
   private _intensities: Uint16Array | null;
   private _classifications: Uint8Array | null;
@@ -79,6 +83,7 @@ export class PointCloudPrimitive {
       new Cesium.Cartesian3(),
     );
     this._appliedHeightOffset = 0;
+    this._appliedOpaque = true;
     this._colors = renderData.colors;
     this._intensities = renderData.intensities;
     this._classifications = renderData.classifications;
@@ -106,13 +111,34 @@ export class PointCloudPrimitive {
         this._destroyed = true;
         return;
       }
-    } else if (this._style.heightOffset !== this._appliedHeightOffset) {
-      // Cheap enough to compare every frame; a Matrix4 rebuild only happens
-      // on the frames where heightOffset actually changed.
-      (this._cmd as { modelMatrix: Cesium.Matrix4 }).modelMatrix = this._modelMatrix(this._style.heightOffset);
-      this._appliedHeightOffset = this._style.heightOffset;
+    } else {
+      // Cheap enough to compare every frame; the underlying rebuilds only
+      // happen on the frames where the relevant style field actually changed.
+      if (this._style.heightOffset !== this._appliedHeightOffset) {
+        (this._cmd as { modelMatrix: Cesium.Matrix4 }).modelMatrix = this._modelMatrix(this._style.heightOffset);
+        this._appliedHeightOffset = this._style.heightOffset;
+      }
+      const opaque = this._style.opacity >= 1;
+      if (opaque !== this._appliedOpaque) {
+        const cmd = this._cmd as { pass: unknown; renderState: unknown };
+        cmd.pass = opaque ? CesiumAny.Pass.OPAQUE : CesiumAny.Pass.TRANSLUCENT;
+        cmd.renderState = PointCloudPrimitive._renderState(opaque);
+        this._appliedOpaque = opaque;
+      }
     }
     frameState.commandList.push(this._cmd);
+  }
+
+  // RenderState.fromCache memoizes by contents, so this is cheap to call on
+  // every opacity threshold crossing rather than caching the result here too.
+  private static _renderState(opaque: boolean): unknown {
+    return opaque
+      ? CesiumAny.RenderState.fromCache({ depthTest: { enabled: true }, depthMask: true })
+      : CesiumAny.RenderState.fromCache({
+          depthTest: { enabled: true },
+          depthMask: false,
+          blending: CesiumAny.BlendingState.ALPHA_BLEND,
+        });
   }
 
   /** Node origin shifted `heightOffset` meters along the node's local "up". */
@@ -200,17 +226,15 @@ export class PointCloudPrimitive {
 
       this._va = va;
       this._sp = sp;
+      const opaque = style.opacity >= 1;
       this._cmd = new CesiumAny.DrawCommand({
         vertexArray: va,
         primitiveType: Cesium.PrimitiveType.POINTS,
         shaderProgram: sp,
-        renderState: CesiumAny.RenderState.fromCache({
-          depthTest: { enabled: true },
-          depthMask: true,
-        }),
+        renderState: PointCloudPrimitive._renderState(opaque),
         boundingVolume: this._boundingSphere,
         count: this._pointCount,
-        pass: CesiumAny.Pass.OPAQUE,
+        pass: opaque ? CesiumAny.Pass.OPAQUE : CesiumAny.Pass.TRANSLUCENT,
         // Carries the node origin (shifted by the live heightOffset) the
         // worker subtracted off; the vertex shader reconstructs absolute
         // ECEF from this plus the node-relative offsets.
@@ -220,9 +244,11 @@ export class PointCloudPrimitive {
           u_colorMode: () => style.colorMode,
           u_intensityRange: () => style.intensityRange,
           u_classMask: () => style.classMask,
+          u_opacity: () => style.opacity,
         },
       });
       this._appliedHeightOffset = this._style.heightOffset;
+      this._appliedOpaque = opaque;
     } catch (err) {
       try {
         if (va) va.destroy();
