@@ -26,6 +26,15 @@ import CopcWorker from './worker/worker.ts?worker&inline';
 
 export type { ColorMode, CopcDataSourceOptions };
 
+/** Shared by the constructor and the live setter so an out-of-range or non-finite
+ *  value can never slip in through either path. */
+function validateOpacity(value: number): number {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`opacity must be between 0 and 1, got ${value}`);
+  }
+  return value;
+}
+
 /**
  * Options with every defaultable field filled in. `classificationFilter` and
  * `intensityRange` stay optional because their unset state is meaningful —
@@ -105,7 +114,7 @@ export class CopcDataSource {
       intensityRange: new Cesium.Cartesian2(options.intensityRange?.[0] ?? 0, options.intensityRange?.[1] ?? 1),
       classMask: buildClassMask(options.classificationFilter),
       heightOffset: 0,
-      opacity: options.opacity,
+      opacity: validateOpacity(options.opacity),
     };
     this._autoIntensityRange = options.intensityRange === undefined;
     this._nodeCache = new NodeCache(options.maxCacheNodes, (_key, node) => this._destroyLoadedNode(node));
@@ -461,10 +470,7 @@ export class CopcDataSource {
     return this._style.opacity;
   }
   set opacity(value: number) {
-    if (value < 0 || value > 1) {
-      throw new RangeError(`opacity must be between 0 and 1, got ${value}`);
-    }
-    this._style.opacity = value;
+    this._style.opacity = validateOpacity(value);
     this._viewer.scene.requestRender();
   }
 
