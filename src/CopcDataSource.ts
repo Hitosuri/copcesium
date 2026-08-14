@@ -48,6 +48,7 @@ const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilte
   xyFactor: 1,
   autoFrame: true,
   colorMode: 'rgb',
+  opacity: 1,
 };
 
 export class CopcDataSource {
@@ -104,6 +105,7 @@ export class CopcDataSource {
       intensityRange: new Cesium.Cartesian2(options.intensityRange?.[0] ?? 0, options.intensityRange?.[1] ?? 1),
       classMask: buildClassMask(options.classificationFilter),
       heightOffset: 0,
+      opacity: options.opacity,
     };
     this._autoIntensityRange = options.intensityRange === undefined;
     this._nodeCache = new NodeCache(options.maxCacheNodes, (_key, node) => this._destroyLoadedNode(node));
@@ -446,6 +448,23 @@ export class CopcDataSource {
   }
   set pixelSize(value: number) {
     this._style.pixelSize = value;
+    this._viewer.scene.requestRender();
+  }
+
+  /**
+   * Alpha multiplier applied to every point's colour, shared live by every
+   * loaded primitive (no reload needed). Below `1`, the primitive switches to
+   * alpha blending with no per-point depth sort, so overlapping points may
+   * blend out of order.
+   */
+  get opacity(): number {
+    return this._style.opacity;
+  }
+  set opacity(value: number) {
+    if (value < 0 || value > 1) {
+      throw new RangeError(`opacity must be between 0 and 1, got ${value}`);
+    }
+    this._style.opacity = value;
     this._viewer.scene.requestRender();
   }
 

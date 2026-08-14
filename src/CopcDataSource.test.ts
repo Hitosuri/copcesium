@@ -696,6 +696,31 @@ describe('CopcDataSource runtime API', () => {
     expect(requestRender).toHaveBeenCalled();
   });
 
+  it('opacity get/set writes the shared ref and requests a render', async () => {
+    mockCopc(undefined);
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+    requestRender.mockClear(); // ignore the render(s) requested during load()
+
+    expect(ds.opacity).toBe(1);
+    ds.opacity = 0.4;
+    expect(ds.opacity).toBe(0.4);
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it('opacity set throws RangeError outside 0-1', async () => {
+    mockCopc(undefined);
+    const { viewer } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+
+    expect(() => {
+      ds.opacity = 1.5;
+    }).toThrow(RangeError);
+    expect(() => {
+      ds.opacity = -0.1;
+    }).toThrow(RangeError);
+  });
+
   it('heightOffset get/set writes the shared ref and requests a render', async () => {
     mockCopc(undefined);
     const { viewer, requestRender } = makeFakeViewer();

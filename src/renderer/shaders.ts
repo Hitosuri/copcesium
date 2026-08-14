@@ -56,6 +56,7 @@ uniform float u_pixelSize;
 uniform int u_colorMode;
 uniform vec2 u_intensityRange;  // raw LAS units, mapped to the ramp's 0..1
 uniform ivec4 u_classMask[2];   // 256-bit allow-list, one bit per classification code
+uniform float u_opacity;
 
 out vec4 v_color;
 
@@ -105,7 +106,7 @@ void main() {
     rgb = color.rgb;
   }
 
-  v_color = vec4(rgb, color.a);
+  v_color = vec4(rgb, color.a * u_opacity);
   gl_PointSize = u_pixelSize;
   // position is a node-relative offset (model coordinates); the node origin
   // rides in the model matrix. Reconstruct the eye-relative position the way

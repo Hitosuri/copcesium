@@ -4,8 +4,7 @@
 // classification filter panel, terrain/imagery pickers, and a camera/FPS
 // HUD. See `examples/basic-viewer` for the minimal reference; this is the
 // "what a real app looks like" companion (see issue for scope notes: no
-// `onProgress`, per-node stats, or opacity control — none of those exist on
-// `CopcDataSource` today).
+// `onProgress` or per-node stats — neither exists on `CopcDataSource` today).
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { CopcDataSource } from 'copcesium';

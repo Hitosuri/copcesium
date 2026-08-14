@@ -29,6 +29,12 @@ export interface CopcDataSourceOptions {
   /** How points are coloured. Default `'rgb'`. Switching costs no refetch. */
   colorMode?: ColorMode;
   /**
+   * Alpha multiplier applied to every point's colour, 0..1. Default `1`
+   * (opaque). Below `1`, the primitive switches to alpha blending with no
+   * per-point depth sort, so overlapping points may blend out of order.
+   */
+  opacity?: number;
+  /**
    * Classification codes (0-255) to draw; every other point is dropped in the
    * vertex shader. Omit to draw everything.
    */

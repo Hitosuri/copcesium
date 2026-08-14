@@ -90,6 +90,7 @@ interface CopcDataSourceOptions {
   xyFactor?: number;
   autoFrame?: boolean;
   colorMode?: 'rgb' | 'intensity' | 'classification' | 'elevation';
+  opacity?: number;
   classificationFilter?: number[];
   intensityRange?: [number, number];
 }
@@ -110,6 +111,7 @@ interface CopcDataSourceOptions {
 | `sseThreshold` | `250` | Screen-space error (pixels) above which a node is subdivided into children. Lower = more detail, more nodes loaded. Live-adjustable via `dataSource.sseThreshold`. |
 | `autoFrame` | `true` | Whether `load()` flies the camera to the dataset before resolving. Set `false` if you're managing the camera yourself. |
 | `colorMode` | `'rgb'` | How points are coloured. Live-adjustable via `dataSource.colorMode`. See [Styling](#styling). |
+| `opacity` | `1` | Alpha multiplier applied to every point's colour. Below `1`, points draw translucent with no per-point depth sort. Live-adjustable via `dataSource.opacity`. |
 | `classificationFilter` | all codes | LAS classification codes to draw; everything else is dropped. Live-adjustable via `dataSource.classificationFilter`. |
 | `intensityRange` | auto | Raw intensity values at the two ends of the `'intensity'` ramp. Grows to `[0, highest seen]` as nodes load when omitted. |
 
@@ -131,6 +133,7 @@ class CopcDataSource {
   pixelSize: number;
   sseThreshold: number;
   colorMode: ColorMode;
+  opacity: number;
   classificationFilter: number[] | undefined;
   intensityRange: [number, number];
   readonly maxDepth: number;
@@ -146,6 +149,7 @@ class CopcDataSource {
 | `pixelSize` | Get/set. Updates every currently-rendered node's point size immediately, no reload. |
 | `sseThreshold` | Get/set. Triggers an immediate LoD re-selection pass when set. |
 | `colorMode` | Get/set. Repaints every loaded node on the next frame — no refetch, no re-decode. |
+| `opacity` | Get/set. Updates every currently-rendered node's translucency immediately, no reload. Throws `RangeError` outside 0-1. |
 | `classificationFilter` | Get/set. Assign `undefined` to draw everything again. Throws `RangeError` on a value outside 0-255. |
 | `intensityRange` | Get/set. Assign `undefined` to hand the range back to auto. |
 | `maxDepth` | Read-only. Deepest octree level present in the loaded hierarchy. |
@@ -167,6 +171,7 @@ const ds = await CopcDataSource.load(url, viewer);
 ds.colorMode = 'classification';   // 'rgb' | 'intensity' | 'classification' | 'elevation'
 ds.classificationFilter = [2, 6];  // draw only ground and buildings
 ds.classificationFilter = undefined; // ...and back to everything
+ds.opacity = 0.5;                  // 0..1, alpha blending below 1
 ```
 
 | Mode | What it draws |
