@@ -1,9 +1,9 @@
 import * as Cesium from 'cesium';
 import proj4 from 'proj4';
-import type { Copc, Hierarchy } from 'copc';
+import { Copc, type Hierarchy } from 'copc';
 import type { ColorMode, CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
-import { isAncestorOf } from './copc/node';
+import { getDepth, isAncestorOf } from './copc/node';
 import { RangeFetcher } from './copc/RangeFetcher';
 import { detectCrs } from './crs/detectCrs';
 import { createProjector } from './crs/project';
@@ -55,7 +55,9 @@ export class CopcDataSource {
   private readonly _viewer: Cesium.Viewer;
   private readonly _copc: Copc;
   private readonly _nodes: Hierarchy.Node.Map;
-  private readonly _maxDepth: number;
+  /** Sub-page entry points not yet merged into `_nodes`; shrinks as pages load. */
+  private readonly _pages: Hierarchy.Page.Map;
+  private readonly _pendingPages = new Set<string>();
   private readonly _rootCenter: { x: number; y: number; z: number };
   private readonly _rootHalfSize: number;
   private readonly _options: ResolvedOptions;
@@ -91,7 +93,7 @@ export class CopcDataSource {
     this._viewer = viewer;
     this._copc = hierarchy.copc;
     this._nodes = hierarchy.nodes;
-    this._maxDepth = hierarchy.maxDepth;
+    this._pages = hierarchy.pages;
     this._rootCenter = hierarchy.rootCenter;
     this._rootHalfSize = hierarchy.rootHalfSize;
     this._options = options;
@@ -254,9 +256,12 @@ export class CopcDataSource {
     }
     this._isUpdating = true;
     try {
+      const neededPages = new Set<string>();
       const newSelectedKeys = new Set(
         selectNodes({
           nodes: this._nodes,
+          pages: this._pages,
+          onPageNeeded: (key) => neededPages.add(key),
           getSphere: (key) => this._getSphere(key),
           camera: this._viewer.scene.camera,
           viewportHeight: this._viewer.scene.canvas.clientHeight,
@@ -264,6 +269,10 @@ export class CopcDataSource {
           maxVisibleNodes: this._options.maxVisibleNodes,
         }),
       );
+
+      for (const key of neededPages) {
+        if (!this._pendingPages.has(key)) void this._loadPage(key);
+      }
 
       // A load still in flight for a key the camera has since moved past is
       // decoding data nobody will show; cancel it so its worker slot frees up
@@ -399,6 +408,26 @@ export class CopcDataSource {
     }
   }
 
+  /** Loads a hierarchy sub-page, merges its nodes/pages into the live maps,
+   *  and re-runs LoD selection so the newly revealed depth can be picked up. */
+  private async _loadPage(key: string): Promise<void> {
+    const page = this._pages[key];
+    if (!page) return;
+    this._pendingPages.add(key);
+    try {
+      const { nodes, pages } = await Copc.loadHierarchyPage(this._url, page);
+      if (this._destroyed) return;
+      Object.assign(this._nodes, nodes);
+      delete this._pages[key];
+      Object.assign(this._pages, pages);
+      void this._updateLoD();
+    } catch (err) {
+      console.error(`[CopcDataSource] Failed to load hierarchy page "${key}":`, err);
+    } finally {
+      this._pendingPages.delete(key);
+    }
+  }
+
   private _destroyLoadedNode(node: LoadedNode): void {
     this._viewer.scene.primitives.remove(node.primitive);
     this._viewer.scene.requestRender();
@@ -490,9 +519,10 @@ export class CopcDataSource {
     void this._updateLoD();
   }
 
-  /** Deepest octree level present in the loaded hierarchy. */
+  /** Deepest octree level present in the loaded hierarchy so far — grows as
+   *  sub-pages load, so this is computed live rather than cached at load time. */
   get maxDepth(): number {
-    return this._maxDepth;
+    return Math.max(...Object.keys(this._nodes).map(getDepth));
   }
 
   /** Total number of nodes in the loaded hierarchy (loaded or not). */
