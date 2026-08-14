@@ -84,6 +84,7 @@ interface CopcDataSourceOptions {
   debounceMs?: number;
   maxCacheNodes?: number;
   maxVisibleNodes?: number;
+  maxPoints?: number;
   pixelSize?: number;
   sseThreshold?: number;
   zFactor?: number;
@@ -106,6 +107,7 @@ interface CopcDataSourceOptions {
 | `debounceMs` | `100` | 전체 LoD 재선택 패스 사이의 최소 간격. 더 가벼운 frustum 전용 가시성 체크는 매 프레임 계속 돕니다. |
 | `maxCacheNodes` | `150` | 메모리에 유지하는 최대 노드 수(LRU) — 초과하면 선택되지 않은 것 중 가장 오래 안 쓰인 노드부터 정리됩니다. |
 | `maxVisibleNodes` | `100` | 한 번의 LoD 패스에서 렌더링용으로 선택하는 최대 노드 수. |
+| `maxPoints` | `5,000,000` | 한 번의 LoD 패스에서 선택된 노드들의 총 포인트 수 상한 — `maxVisibleNodes`와 함께 적용됩니다. |
 | `pixelSize` | `2` | 포인트 크기(픽셀). 로드 후 `dataSource.pixelSize`로 실시간 조정 가능. |
 | `sseThreshold` | `250` | 이 값을 넘으면 노드를 자식으로 세분화하는 화면 공간 오차(픽셀) 기준값. 낮을수록 디테일은 높아지고 로드되는 노드도 많아집니다. `dataSource.sseThreshold`로 실시간 조정 가능. |
 | `autoFrame` | `true` | `load()`가 resolve되기 전에 카메라를 데이터셋으로 비행시킬지 여부. 카메라를 직접 관리한다면 `false`로 설정하세요. |

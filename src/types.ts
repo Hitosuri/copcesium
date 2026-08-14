@@ -18,6 +18,11 @@ export interface CopcDataSourceOptions {
   debounceMs?: number;
   maxCacheNodes?: number;
   maxVisibleNodes?: number;
+  /**
+   * Bounds the render set by total point count across selected nodes, on top
+   * of `maxVisibleNodes`. Default 5,000,000.
+   */
+  maxPoints?: number;
   pixelSize?: number;
   sseThreshold?: number;
   /** Factor that converts the Z axis unit to meters. Auto-detected from the WKT when omitted. */

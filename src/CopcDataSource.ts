@@ -42,6 +42,7 @@ const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilte
   debounceMs: 100,
   maxCacheNodes: 150,
   maxVisibleNodes: 100,
+  maxPoints: 5_000_000,
   pixelSize: 2,
   sseThreshold: 250,
   zFactor: 1,
@@ -267,6 +268,7 @@ export class CopcDataSource {
           viewportHeight: this._viewer.scene.canvas.clientHeight,
           sseThreshold: this._options.sseThreshold,
           maxVisibleNodes: this._options.maxVisibleNodes,
+          maxPoints: this._options.maxPoints,
         }),
       );
 
