@@ -95,6 +95,15 @@ export interface SelectNodesOptions {
   viewportHeight: number;
   sseThreshold: number;
   maxVisibleNodes: number;
+  /**
+   * Bounds the render set by total point count across selected nodes, on top
+   * of `maxVisibleNodes`. Node point counts vary widely across a hierarchy,
+   * so `maxVisibleNodes` alone can't predict actual rendering cost (draw
+   * calls, GPU memory, points on screen) across datasets with different
+   * point densities per node; this bounds that directly. Defaults to
+   * unlimited (`maxVisibleNodes` alone governs) when omitted.
+   */
+  maxPoints?: number;
 }
 
 /**
@@ -116,17 +125,29 @@ export interface SelectNodesOptions {
  * is still expanded regardless of SSE so its populated children are reached.
  * Nodes outside the view frustum are dropped along with their whole subtree.
  *
- * `maxVisibleNodes` bounds the whole render set, ancestors included. Since a
- * parent is always popped before its children are pushed, the budget can only
- * ever cut depth off the bottom, never leave a descendant selected without
- * the ancestors it sits on top of.
+ * `maxVisibleNodes` and `maxPoints` both bound the whole render set, ancestors
+ * included, terminating on whichever limit is hit first. Since a parent is
+ * always popped before its children are pushed, the budget can only ever cut
+ * depth off the bottom, never leave a descendant selected without the
+ * ancestors it sits on top of.
  */
 export function selectNodes(options: SelectNodesOptions): string[] {
-  const { nodes, pages = {}, onPageNeeded, getSphere, camera, viewportHeight, sseThreshold, maxVisibleNodes } = options;
+  const {
+    nodes,
+    pages = {},
+    onPageNeeded,
+    getSphere,
+    camera,
+    viewportHeight,
+    sseThreshold,
+    maxVisibleNodes,
+    maxPoints = Infinity,
+  } = options;
 
   const cullingVolume = getCullingVolume(camera);
   const fovy = getFovy(camera.frustum);
   const selected: string[] = [];
+  let pointsUsed = 0;
 
   const sseOf = (key: string): number => computeScreenSpaceError(getSphere(key), camera.position, viewportHeight, fovy);
 
@@ -134,7 +155,7 @@ export function selectNodes(options: SelectNodesOptions): string[] {
   // The root's priority never matters — it's the only entry until popped.
   heap.push({ key: '0-0-0-0', sse: Infinity });
 
-  while (heap.size > 0 && selected.length < maxVisibleNodes) {
+  while (heap.size > 0 && selected.length < maxVisibleNodes && pointsUsed < maxPoints) {
     const { key } = heap.pop()!;
     const nodeInfo = nodes[key];
     if (!nodeInfo) continue;
@@ -142,7 +163,10 @@ export function selectNodes(options: SelectNodesOptions): string[] {
     const sphere = getSphere(key);
     if (!isInFrustum(sphere, cullingVolume)) continue;
 
-    if (nodeInfo.pointCount > 0) selected.push(key);
+    if (nodeInfo.pointCount > 0) {
+      selected.push(key);
+      pointsUsed += nodeInfo.pointCount;
+    }
 
     // An empty node is descended through regardless of SSE — it contributes
     // nothing itself, so its populated children are the only way to fill the

@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`maxPoints` option bounds the LoD render set by total point count, not
+  just node count.** `maxVisibleNodes` caps how many nodes `selectNodes()`
+  picks, but `Hierarchy.Node.pointCount` isn't uniform across a hierarchy, so
+  the same node budget could mean very different actual point counts on
+  different datasets — no way to reason directly about rendering cost (draw
+  calls, GPU memory, points on screen). `selectNodes()` now also accumulates
+  selected nodes' point counts and stops once `maxPoints` (default
+  5,000,000) is reached, whichever of the two limits comes first.
+  `maxVisibleNodes` is unchanged and still applies. (#118)
+
 ## [1.1.1] - 2026-08-07
 
 ### Fixed

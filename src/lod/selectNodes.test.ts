@@ -310,4 +310,48 @@ describe('selectNodes', () => {
     expect(selected).toEqual(['0-0-0-0']);
     expect(neededPages).toEqual(['1-1-1-1']);
   });
+
+  it('stops the traversal once maxPoints is reached, independent of maxVisibleNodes', () => {
+    const nodes = makeOneLevelOctree();
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 30),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+      // Root (100 points) is under budget, so one more pop is attempted;
+      // after it lands (110 points) the budget is used up and the loop stops.
+      maxPoints: 105,
+    });
+
+    expect(selected[0]).toBe('0-0-0-0');
+    expect(selected).toHaveLength(2);
+  });
+
+  it('is unbounded by point count when maxPoints is omitted', () => {
+    const nodes = makeOneLevelOctree();
+    const camera = makeCamera(
+      new Cesium.Cartesian3(0, 0, 30),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const selected = selectNodes({
+      nodes,
+      getSphere: makeGetSphere(rootCenter, rootHalfSize),
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+    });
+
+    expect(selected).toHaveLength(9);
+  });
 });
