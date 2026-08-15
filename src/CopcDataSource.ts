@@ -61,6 +61,12 @@ const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilte
   opacity: 1,
 };
 
+// Total attempts per hierarchy sub-page before giving up, mirroring
+// RangeFetcher's MAX_ATTEMPTS for node-level Range Requests (#117): a page
+// that keeps failing needs a bound so `onPageNeeded` doesn't refire the same
+// request forever on every LoD pass.
+const MAX_PAGE_LOAD_ATTEMPTS = 3;
+
 export class CopcDataSource {
   private readonly _url: string;
   private readonly _viewer: Cesium.Viewer;
@@ -73,6 +79,8 @@ export class CopcDataSource {
   /** Sub-page entry points not yet merged into `_nodes`; shrinks as pages load. */
   private readonly _pages: Hierarchy.Page.Map;
   private readonly _pendingPages = new Set<string>();
+  /** Consecutive failure count per hierarchy page key; cleared once a page loads. */
+  private readonly _pageFailures = new Map<string, number>();
   private readonly _rootCenter: { x: number; y: number; z: number };
   private readonly _rootHalfSize: number;
   private readonly _options: ResolvedOptions;
@@ -442,9 +450,22 @@ export class CopcDataSource {
       }
       delete this._pages[key];
       Object.assign(this._pages, pages);
+      this._pageFailures.delete(key);
       void this._updateLoD();
     } catch (err) {
-      console.error(`[CopcDataSource] Failed to load hierarchy page "${key}":`, err);
+      const attempts = (this._pageFailures.get(key) ?? 0) + 1;
+      this._pageFailures.set(key, attempts);
+      if (attempts >= MAX_PAGE_LOAD_ATTEMPTS) {
+        // Give up: drop the entry point so `onPageNeeded` never fires for it
+        // again, and log once here rather than on every attempt so a
+        // transient outage doesn't scroll the console.
+        delete this._pages[key];
+        this._pageFailures.delete(key);
+        console.error(
+          `[CopcDataSource] Giving up on hierarchy page "${key}" after ${attempts} attempts:`,
+          err,
+        );
+      }
     } finally {
       this._pendingPages.delete(key);
     }
