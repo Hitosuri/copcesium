@@ -3,6 +3,46 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-08-16
+
+### Fixed
+
+- **A multi-page hierarchy with enough nodes could throw a stack overflow
+  instead of rendering.** `loadCopcHierarchy()` and `CopcDataSource` computed
+  `maxDepth` via `Math.max(...keys.map(getDepth))`, spreading every node key
+  as an individual call argument, which throws `RangeError` once the node
+  count passes V8's call-stack argument limit (~124k). `maxDepth` is now
+  tracked incrementally as sub-pages merge into the node map, and the
+  one-off computation in `loadCopcHierarchy()` uses a manual loop instead of
+  a spread. (#131)
+- **A hierarchy sub-page that failed to load could be retried forever, or
+  permanently dropped by a brief blip.** `_loadPage()` previously either
+  retried a failing sub-page indefinitely on every LoD pass, or (after an
+  earlier fix capped retries at 3 attempts) could burn through that cap
+  within a few hundred milliseconds — a page is only re-requested when the
+  next LoD pass rediscovers it, as often as every `debounceMs` (100ms by
+  default) while the camera moves — permanently dropping the subtree over a
+  one-second network blip, since give-up deletes the page's entry point and
+  nothing puts it back. Retries are now spaced out with a per-attempt
+  backoff (1s then 2s) before giving up after 3 attempts, and a failure more
+  than 60s after the previous one resets the counter as a new incident
+  rather than a continuation. Attempts below the cap now warn instead of
+  staying silent. (#127)
+
+### Changed
+
+- **LoD replacement checks now bucket selected nodes by depth**, letting a
+  deselected node skip same-depth candidates outright — neither an ancestor
+  nor descendant relationship is possible there — instead of re-splitting
+  every candidate key on every `isAncestorOf()` call. Selection behaviour
+  (which nodes get hidden/shown, and when) is unchanged. (#133)
+- **`convertNode()` reads each point's RGB attributes once instead of
+  twice.** Color conversion scanned Red/Green/Blue once to compute
+  `maxColor` and again during the real conversion, doubling the
+  bounds-checked `DataView` reads per point. Raw RGB is now read into a
+  scratch buffer while tracking `maxColor` in one pass, then rescaled into
+  the output colors array with pure arithmetic in a second pass. (#134)
+
 ## [1.2.0] - 2026-08-14
 
 ### Added
