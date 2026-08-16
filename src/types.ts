@@ -65,12 +65,6 @@ export interface CrsDetectionResult {
   xyFactor: number;
 }
 
-/** A node's local-space (offset not applied) bounds — computed and consumed by teammate B's lod/boundingVolume.ts */
-export interface NodeBounds {
-  center: [number, number, number];
-  halfSize: number;
-}
-
 /**
  * Rendering-ready TypedArray buffers the Worker hands back to the main thread.
  *
