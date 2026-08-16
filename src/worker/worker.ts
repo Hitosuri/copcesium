@@ -93,6 +93,50 @@ function tryGetter(view: View, name: string): View.Getter | undefined {
 }
 
 /**
+ * Registers `projDef` with proj4 the first time a given `proj` is seen,
+ * matching the module-level `registeredProjs` cache so repeat nodes on the
+ * same CRS (the common case within one dataset) skip re-registration. Runs
+ * once per node call, not once per point.
+ */
+function registerProjIfNeeded(proj: string, projDef: string | null): void {
+  if (proj !== 'EPSG:4326' && projDef && !registeredProjs.has(proj)) {
+    proj4.defs(proj, projDef);
+    registeredProjs.add(proj);
+  }
+}
+
+/**
+ * Reads each point's raw RGB once into a scratch buffer while tracking
+ * maxColor in the same pass, so 16-bit-encoded colors (0-65535, common in
+ * LAS producers) still scale down correctly without a second round of
+ * getter calls (each of which does a bounds check, an offset computation,
+ * and a DataView read) during the main per-point loop. Runs once per node
+ * call, not once per point; see #129/#134 for why this stayed a single pass.
+ */
+function readRgbRaw(
+  n: number,
+  getR: View.Getter,
+  getG: View.Getter,
+  getB: View.Getter,
+): { rgbRaw: Uint16Array; maxColor: number } {
+  const rgbRaw = new Uint16Array(n * 3);
+  let maxColor = 0;
+  for (let i = 0; i < n; i++) {
+    const r = getR(i);
+    const g = getG(i);
+    const b = getB(i);
+    const i3 = i * 3;
+    rgbRaw[i3] = r;
+    rgbRaw[i3 + 1] = g;
+    rgbRaw[i3 + 2] = b;
+    if (r > maxColor) maxColor = r;
+    if (g > maxColor) maxColor = g;
+    if (b > maxColor) maxColor = b;
+  }
+  return { rgbRaw, maxColor };
+}
+
+/**
  * Fetches a COPC node's compressed point data (HTTP Range Request), decodes
  * it, and converts it into render-ready ECEF positions and RGBA colors.
  *
@@ -124,34 +168,11 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
   const getCls = tryGetter(view, 'Classification');
   const getIntensity = tryGetter(view, 'Intensity');
 
-  if (proj !== 'EPSG:4326' && projDef && !registeredProjs.has(proj)) {
-    proj4.defs(proj, projDef);
-    registeredProjs.add(proj);
-  }
+  registerProjIfNeeded(proj, projDef);
   const needsProj = proj !== 'EPSG:4326';
   const converter = needsProj ? proj4(proj, 'EPSG:4326') : null;
 
-  // Read each point's raw RGB once into a scratch buffer while tracking
-  // maxColor in the same pass, so 16-bit-encoded colors (0-65535, common in
-  // LAS producers) still scale down correctly without a second round of
-  // getter calls (each of which does a bounds check, an offset computation,
-  // and a DataView read) during the main loop below.
-  let maxColor = 0;
-  const rgbRaw = hasRGB ? new Uint16Array(n * 3) : null;
-  if (hasRGB && rgbRaw) {
-    for (let i = 0; i < n; i++) {
-      const r = getR!(i);
-      const g = getG!(i);
-      const b = getB!(i);
-      const i3 = i * 3;
-      rgbRaw[i3] = r;
-      rgbRaw[i3 + 1] = g;
-      rgbRaw[i3 + 2] = b;
-      if (r > maxColor) maxColor = r;
-      if (g > maxColor) maxColor = g;
-      if (b > maxColor) maxColor = b;
-    }
-  }
+  const { rgbRaw, maxColor } = hasRGB ? readRgbRaw(n, getR!, getG!, getB!) : { rgbRaw: null, maxColor: 0 };
   const colorScale = maxColor > 255 ? 65535 : 255;
 
   // Positions leave the worker as Float32 offsets from the node origin (the
