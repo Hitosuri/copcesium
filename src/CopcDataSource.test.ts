@@ -1093,3 +1093,31 @@ describe('CopcDataSource runtime API', () => {
     expect(ds.cacheSize).toBe(0); // nothing loaded yet
   });
 });
+
+describe('CopcDataSource._sphereCache', () => {
+  it('caps the cache size, evicting least-recently-used entries past the cap, and still returns a correct sphere on re-request', async () => {
+    mockCopc(undefined);
+    const ds = (await CopcDataSource.load('https://example.com/sample.copc.laz', fakeViewer)) as unknown as {
+      _getSphere(key: string): { center: unknown; radius: number };
+      _sphereCache: Map<string, unknown>;
+    };
+
+    // Synthetic (not real hierarchy) keys are fine here — getNodeBoundingSphere
+    // only parses "level-x-y-z" and does pure arithmetic on it, so this
+    // exercises _sphereCache's own eviction logic without needing a bigger
+    // fixture hierarchy or a real LoD pass.
+    const keyCount = ds._sphereCache.size + 5001; // push well past the 5000-entry cap
+    for (let i = 0; i < keyCount; i++) {
+      ds._getSphere(`0-0-0-${i}`);
+    }
+
+    expect(ds._sphereCache.size).toBeLessThanOrEqual(5000);
+    // The earliest keys were evicted first (LRU / insertion order)...
+    expect(ds._sphereCache.has('0-0-0-0')).toBe(false);
+    // ...while a recently-requested one is still cached...
+    expect(ds._sphereCache.has(`0-0-0-${keyCount - 1}`)).toBe(true);
+    // ...and re-requesting an evicted key transparently recomputes a valid sphere.
+    const recomputed = ds._getSphere('0-0-0-0');
+    expect(recomputed.radius).toBeGreaterThan(0);
+  });
+});
