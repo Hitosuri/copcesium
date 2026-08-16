@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { Viewer } from 'cesium';
 import type { Hierarchy } from 'copc';
 import type { NodeRenderData } from './types';
@@ -147,6 +147,25 @@ function makeFakeViewer() {
     requestRender,
     triggerUpdate: () => updateCallback!(),
     triggerMoveEnd: () => moveEndCallback!(),
+  };
+}
+
+/** Drives `performance.now()` so the hierarchy-page retry backoff can be
+ *  stepped deterministically instead of waited out in real time. Only
+ *  `performance.now()` is faked, not timers, so `vi.waitFor()` still works.
+ *
+ *  Restored via `onTestFinished` rather than at the end of the test body: a
+ *  failed assertion would skip that line, and the shared `beforeEach` only
+ *  calls `clearAllMocks()` (which leaves implementations in place), so the
+ *  frozen clock would leak into every later test and stall their debounce. */
+function useFakeClock() {
+  let now = 0;
+  const spy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  onTestFinished(() => spy.mockRestore());
+  return {
+    advance: (ms: number) => {
+      now += ms;
+    },
   };
 }
 
@@ -437,6 +456,206 @@ describe('CopcDataSource update loop', () => {
     await vi.waitFor(() => expect(ds.nodeCount).toBe(150_001));
     expect(() => ds.maxDepth).not.toThrow();
     expect(ds.maxDepth).toBe(6);
+  });
+
+  it('gives up on a hierarchy page after 3 failed attempts, logs once, and stops re-fetching it', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 1'));
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 2'));
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 3'));
+    // Every LoD pass rediscovers the still-unloaded sub-page, same as the
+    // real traversal would until the page is either merged or dropped.
+    selectNodesMock.mockImplementation((opts: unknown) => {
+      (opts as { onPageNeeded?: (key: string) => void }).onPageNeeded?.('1-1-1-1');
+      return ['0-0-0-0'];
+    });
+    workerPoolRun.mockResolvedValue(renderData);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clock = useFakeClock();
+
+    const { viewer, triggerUpdate } = makeFakeViewer();
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    // The first pass loads the root page and, via onPageNeeded, immediately
+    // fires attempt 1 for the discovered sub-page.
+    triggerUpdate();
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2));
+
+    // Attempts 2-3 for '1-1-1-1', each rejecting; the third hits the cap. Each
+    // one has to wait out its backoff (1s, then 2s) before a pass will spend an
+    // attempt on it.
+    const backoffs = [1000, 2000];
+    for (const [i, backoffMs] of backoffs.entries()) {
+      clock.advance(backoffMs);
+      triggerUpdate();
+      await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(3 + i));
+    }
+    // Only the final give-up is an error, not one line per failed attempt; the
+    // two below the cap are warnings.
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Giving up on hierarchy page "1-1-1-1" after 3 attempts'),
+      expect.any(Error),
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    // A further LoD pass rediscovers the key via onPageNeeded, but the entry
+    // point was dropped on give-up, so _loadPage must no-op instead of
+    // re-fetching it — even once any backoff would have elapsed.
+    clock.advance(60_000);
+    triggerUpdate();
+    expect(loadHierarchyPage).toHaveBeenCalledTimes(4);
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('skips retry passes that land inside a failed page\'s backoff window', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 1'));
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 2'));
+    selectNodesMock.mockImplementation((opts: unknown) => {
+      (opts as { onPageNeeded?: (key: string) => void }).onPageNeeded?.('1-1-1-1');
+      return ['0-0-0-0'];
+    });
+    workerPoolRun.mockResolvedValue(renderData);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clock = useFakeClock();
+
+    const { viewer, triggerUpdate } = makeFakeViewer();
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate(); // attempt 1, rejects
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2));
+
+    // A moving camera runs a pass as often as every `debounceMs` (and on every
+    // moveEnd). Those passes must not each spend an attempt, or the 3-attempt
+    // budget would be gone within a few hundred milliseconds of a blip.
+    for (let elapsed = 100; elapsed < 1000; elapsed += 100) {
+      clock.advance(100);
+      triggerUpdate();
+    }
+    expect(loadHierarchyPage).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    // Backoff now elapsed: the next pass spends attempt 2.
+    clock.advance(100);
+    triggerUpdate();
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(3));
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('does not accumulate failures spread beyond the reset window into a give-up', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    loadHierarchyPage.mockRejectedValue(new Error('blip'));
+    selectNodesMock.mockImplementation((opts: unknown) => {
+      (opts as { onPageNeeded?: (key: string) => void }).onPageNeeded?.('1-1-1-1');
+      return ['0-0-0-0'];
+    });
+    workerPoolRun.mockResolvedValue(renderData);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clock = useFakeClock();
+
+    const { viewer, triggerUpdate } = makeFakeViewer();
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+
+    // Three isolated blips, minutes apart, are three separate incidents — not
+    // one page steadily going bad — so none of them may burn the budget the
+    // next real outage needs.
+    for (let i = 0; i < 3; i++) {
+      triggerUpdate();
+      await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2 + i));
+      clock.advance(120_000);
+    }
+    expect(errorSpy).not.toHaveBeenCalled();
+    // Each was counted as a first attempt, so the page is still a candidate.
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+    expect(warnSpy).toHaveBeenLastCalledWith(
+      expect.stringContaining('(attempt 1/3)'),
+      expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('retries a hierarchy page that fails twice, then loads it successfully on the third attempt', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 1'));
+    loadHierarchyPage.mockRejectedValueOnce(new Error('boom 2'));
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '1-1-1-1': { pointCount: 1, pointDataOffset: 5, pointDataLength: 1 } },
+      pages: {},
+    });
+    selectNodesMock.mockImplementation((opts: unknown) => {
+      (opts as { onPageNeeded?: (key: string) => void }).onPageNeeded?.('1-1-1-1');
+      return ['0-0-0-0'];
+    });
+    workerPoolRun.mockResolvedValue(renderData);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clock = useFakeClock();
+
+    const { viewer, triggerUpdate } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    // The first pass loads the root page and, via onPageNeeded, immediately
+    // fires attempt 1 for the discovered sub-page (rejects).
+    triggerUpdate();
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2));
+    clock.advance(1000);
+    triggerUpdate(); // attempt 2, rejects
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(3));
+    clock.advance(2000);
+    triggerUpdate(); // attempt 3, succeeds
+    await vi.waitFor(() => expect(ds.nodeCount).toBe(2));
+
+    expect(ds.maxDepth).toBe(1);
+    // Two transient failures below the cap must not trigger a give-up log.
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    // Merged and no longer an entry point, so a later pass must not re-fetch it.
+    triggerUpdate();
+    expect(loadHierarchyPage).toHaveBeenCalledTimes(4);
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('hides a cached node when it drops out of the LoD selection, and re-shows it without re-dispatching if reselected', async () => {

@@ -61,6 +61,26 @@ const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilte
   opacity: 1,
 };
 
+// Total attempts per hierarchy sub-page before giving up, mirroring
+// RangeFetcher's MAX_ATTEMPTS for node-level Range Requests (#117): a page
+// that keeps failing needs a bound so `onPageNeeded` doesn't refire the same
+// request forever on every LoD pass.
+const MAX_PAGE_LOAD_ATTEMPTS = 3;
+
+// Retries here aren't paced by a timer of their own — a page is re-requested
+// whenever the next LoD pass rediscovers it, which is as often as every
+// `debounceMs` (100ms by default) while the camera moves, and immediately on
+// `moveEnd`. Without a delay of its own, all three attempts can burn inside a
+// few hundred milliseconds, so a one-second network blip would exhaust the
+// budget and drop the subtree for good. These spread the attempts the way
+// RangeFetcher's backoff does, but longer: a give-up here is permanent for the
+// session, whereas a failed node load is simply re-requested by the next pass.
+const PAGE_RETRY_BASE_MS = 1000;
+// Failures far enough apart are unrelated incidents, not one page going bad:
+// without this, three isolated blips across a long session would still add up
+// to a permanent give-up.
+const PAGE_FAILURE_RESET_MS = 60_000;
+
 export class CopcDataSource {
   private readonly _url: string;
   private readonly _viewer: Cesium.Viewer;
@@ -73,6 +93,10 @@ export class CopcDataSource {
   /** Sub-page entry points not yet merged into `_nodes`; shrinks as pages load. */
   private readonly _pages: Hierarchy.Page.Map;
   private readonly _pendingPages = new Set<string>();
+  /** Failed attempts per hierarchy page key, with the timestamp of the last one
+   *  so retries can be spaced out and stale counts discarded; cleared once a
+   *  page loads. */
+  private readonly _pageFailures = new Map<string, { count: number; at: number }>();
   private readonly _rootCenter: { x: number; y: number; z: number };
   private readonly _rootHalfSize: number;
   private readonly _options: ResolvedOptions;
@@ -432,6 +456,13 @@ export class CopcDataSource {
   private async _loadPage(key: string): Promise<void> {
     const page = this._pages[key];
     if (!page) return;
+    const failure = this._pageFailures.get(key);
+    // Still inside this attempt's backoff — skip the pass rather than spend an
+    // attempt on it. The next LoD pass to rediscover the page picks it up once
+    // the delay has elapsed.
+    if (failure && performance.now() - failure.at < PAGE_RETRY_BASE_MS * 2 ** (failure.count - 1)) {
+      return;
+    }
     this._pendingPages.add(key);
     try {
       const { nodes, pages } = await Copc.loadHierarchyPage(this._url, page);
@@ -443,9 +474,32 @@ export class CopcDataSource {
       }
       delete this._pages[key];
       Object.assign(this._pages, pages);
+      this._pageFailures.delete(key);
       void this._updateLoD();
     } catch (err) {
-      console.error(`[CopcDataSource] Failed to load hierarchy page "${key}":`, err);
+      const now = performance.now();
+      const recent = failure && now - failure.at < PAGE_FAILURE_RESET_MS;
+      const attempts = recent ? failure.count + 1 : 1;
+      this._pageFailures.set(key, { count: attempts, at: now });
+      if (attempts >= MAX_PAGE_LOAD_ATTEMPTS) {
+        // Give up: drop the entry point so `onPageNeeded` never fires for it
+        // again, and log an error once here rather than on every attempt so a
+        // transient outage doesn't scroll the console.
+        delete this._pages[key];
+        this._pageFailures.delete(key);
+        console.error(
+          `[CopcDataSource] Giving up on hierarchy page "${key}" after ${attempts} attempts:`,
+          err,
+        );
+      } else {
+        // Not silent before the cap: a page that eventually loads leaves no
+        // error behind, so without this the failures that a field report would
+        // need to explain a stall would be invisible.
+        console.warn(
+          `[CopcDataSource] Hierarchy page "${key}" failed (attempt ${attempts}/${MAX_PAGE_LOAD_ATTEMPTS}), will retry:`,
+          err,
+        );
+      }
     } finally {
       this._pendingPages.delete(key);
     }
