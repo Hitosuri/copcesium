@@ -36,14 +36,19 @@ function validateOpacity(value: number): number {
 }
 
 /**
- * Options with every defaultable field filled in. `classificationFilter` and
- * `intensityRange` stay optional because their unset state is meaningful —
- * "no filter" and "auto-range as nodes arrive" aren't expressible as a value.
+ * Options with every defaultable field filled in. `classificationFilter`,
+ * `intensityRange`, and `maxCacheBytes` stay optional because their unset
+ * state is meaningful — "no filter", "auto-range as nodes arrive", and "no
+ * byte-based cache limit" aren't expressible as a value.
  */
-type ResolvedOptions = Required<Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>> &
-  Pick<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>;
+type ResolvedOptions = Required<
+  Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange' | 'maxCacheBytes'>
+> &
+  Pick<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange' | 'maxCacheBytes'>;
 
-const DEFAULT_OPTIONS: Required<Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange'>> = {
+const DEFAULT_OPTIONS: Required<
+  Omit<CopcDataSourceOptions, 'classificationFilter' | 'intensityRange' | 'maxCacheBytes'>
+> = {
   proj: 'EPSG:4326',
   projDef: null,
   geoidOffset: 0,
@@ -147,7 +152,9 @@ export class CopcDataSource {
       opacity: validateOpacity(options.opacity),
     };
     this._autoIntensityRange = options.intensityRange === undefined;
-    this._nodeCache = new NodeCache(options.maxCacheNodes, (_key, node) => this._destroyLoadedNode(node));
+    this._nodeCache = new NodeCache(options.maxCacheNodes, options.maxCacheBytes, (_key, node) =>
+      this._destroyLoadedNode(node),
+    );
     // Caps concurrent Range Requests at the worker pool's size, so fetching
     // can't outrun decoding the way it did before this was wired up (#86).
     this._rangeFetcher = new RangeFetcher(url, undefined, undefined, workerPool.concurrency);
