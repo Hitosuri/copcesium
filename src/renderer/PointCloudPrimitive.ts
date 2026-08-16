@@ -51,6 +51,14 @@ interface CesiumInternal {
 }
 const CesiumAny = Cesium as unknown as CesiumInternal;
 
+// The subset of a constructed DrawCommand's own fields (as opposed to its
+// constructor options) this file mutates in place after construction.
+interface DrawCommandLike {
+  modelMatrix: Cesium.Matrix4;
+  pass: unknown;
+  renderState: unknown;
+}
+
 // Cesium.Primitive allocates a JS object per point; this DrawCommand-based
 // wrapper instead uploads the node's TypedArrays as a single GPU buffer.
 //
@@ -71,7 +79,7 @@ export class PointCloudPrimitive {
   private _style: PointStyle;
   public show: boolean;
   private _destroyed: boolean;
-  private _cmd: unknown;
+  private _cmd: DrawCommandLike | null;
   private _va: { destroy(): void } | null;
   private _sp: { destroy(): void } | null;
 
@@ -115,14 +123,13 @@ export class PointCloudPrimitive {
       // Cheap enough to compare every frame; the underlying rebuilds only
       // happen on the frames where the relevant style field actually changed.
       if (this._style.heightOffset !== this._appliedHeightOffset) {
-        (this._cmd as { modelMatrix: Cesium.Matrix4 }).modelMatrix = this._modelMatrix(this._style.heightOffset);
+        this._cmd.modelMatrix = this._modelMatrix(this._style.heightOffset);
         this._appliedHeightOffset = this._style.heightOffset;
       }
       const opaque = this._style.opacity >= 1;
       if (opaque !== this._appliedOpaque) {
-        const cmd = this._cmd as { pass: unknown; renderState: unknown };
-        cmd.pass = opaque ? CesiumAny.Pass.OPAQUE : CesiumAny.Pass.TRANSLUCENT;
-        cmd.renderState = PointCloudPrimitive._renderState(opaque);
+        this._cmd.pass = opaque ? CesiumAny.Pass.OPAQUE : CesiumAny.Pass.TRANSLUCENT;
+        this._cmd.renderState = PointCloudPrimitive._renderState(opaque);
         this._appliedOpaque = opaque;
       }
     }
@@ -246,7 +253,7 @@ export class PointCloudPrimitive {
           u_classMask: () => style.classMask,
           u_opacity: () => style.opacity,
         },
-      });
+      }) as DrawCommandLike;
       this._appliedHeightOffset = this._style.heightOffset;
       this._appliedOpaque = opaque;
     } catch (err) {
