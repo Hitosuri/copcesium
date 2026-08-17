@@ -81,6 +81,14 @@ const PAGE_RETRY_BASE_MS = 1000;
 // to a permanent give-up.
 const PAGE_FAILURE_RESET_MS = 60_000;
 
+// Bounds `_sphereCache` independently of `maxCacheNodes`: every candidate the
+// BFS selectNodes() pass touches while walking the hierarchy gets a sphere
+// computed, not just currently-loaded/visible nodes, so this cache sees a much
+// larger working set per LoD pass than NodeCache does. Sized generously above
+// the default `maxCacheNodes` (150) to comfortably hold a pass's candidates
+// without thrashing.
+const MAX_SPHERE_CACHE_SIZE = 5000;
+
 export class CopcDataSource {
   private readonly _url: string;
   private readonly _viewer: Cesium.Viewer;
@@ -232,11 +240,31 @@ export class CopcDataSource {
     });
   }
 
+  /** LRU-cached, capped at `MAX_SPHERE_CACHE_SIZE`. Unlike `_nodeCache`, no
+   *  pinning is needed: a `Cesium.BoundingSphere` is pure arithmetic (no I/O,
+   *  no GPU work), so evicting even a currently-visible node's sphere is
+   *  safe — it's simply recomputed on the next call. */
   private _getSphere(key: string): Cesium.BoundingSphere {
-    let sphere = this._sphereCache.get(key);
-    if (!sphere) {
-      sphere = getNodeBoundingSphere(key, this._rootCenter, this._rootHalfSize, this._project, this._options.xyFactor);
-      this._sphereCache.set(key, sphere);
+    const cached = this._sphereCache.get(key);
+    if (cached) {
+      // Bump recency: delete + re-insert moves this key to the end of the
+      // Map's iteration order, which the eviction below relies on.
+      this._sphereCache.delete(key);
+      this._sphereCache.set(key, cached);
+      return cached;
+    }
+    const sphere = getNodeBoundingSphere(
+      key,
+      this._rootCenter,
+      this._rootHalfSize,
+      this._project,
+      this._options.xyFactor,
+    );
+    this._sphereCache.set(key, sphere);
+    if (this._sphereCache.size > MAX_SPHERE_CACHE_SIZE) {
+      // Iterates in insertion (= least-recently-used-first) order.
+      const oldestKey = this._sphereCache.keys().next().value;
+      if (oldestKey !== undefined) this._sphereCache.delete(oldestKey);
     }
     return sphere;
   }
