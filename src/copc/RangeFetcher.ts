@@ -39,7 +39,10 @@ function httpError(status: number, begin: number, end: number): Error {
   return err;
 }
 
-function isRetryable(err: unknown): boolean {
+/** Exported so other callers hitting the same file over HTTP (e.g.
+ *  `CopcDataSource`'s hierarchy page loads) can classify a settled 4xx the
+ *  same way, instead of retrying an answer that will never change. */
+export function isRetryable(err: unknown): boolean {
   // A cancelled request must never be retried — `cancel()`/`destroy()` raise
   // this name precisely to say the result is no longer wanted.
   if ((err as Error).name === 'AbortError') return false;

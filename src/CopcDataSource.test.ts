@@ -38,14 +38,21 @@ vi.mock('./worker/WorkerPool', () => ({
 // that don't care about the fetch stage can ignore it entirely.
 const rangeFetcherFetch = vi.fn();
 const rangeFetcherDestroy = vi.fn();
-vi.mock('./copc/RangeFetcher', () => ({
-  RangeFetcher: vi.fn().mockImplementation(function () {
-    return {
-      fetch: (...args: unknown[]) => rangeFetcherFetch(...args),
-      destroy: (...args: unknown[]) => rangeFetcherDestroy(...args),
-    };
-  }),
-}));
+// `isRetryable` is kept real (via `importOriginal`) rather than mocked — it's
+// a pure function with no fetch dependency, and `_loadPage()`'s give-up tests
+// below rely on its actual status-based classification.
+vi.mock('./copc/RangeFetcher', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./copc/RangeFetcher')>();
+  return {
+    ...actual,
+    RangeFetcher: vi.fn().mockImplementation(function () {
+      return {
+        fetch: (...args: unknown[]) => rangeFetcherFetch(...args),
+        destroy: (...args: unknown[]) => rangeFetcherDestroy(...args),
+      };
+    }),
+  };
+});
 
 // The update-loop tests below only care whether CopcDataSource correctly wires
 // selectNodes()'s output through WorkerPool -> NodeCache -> scene.primitives —
@@ -414,7 +421,11 @@ describe('CopcDataSource update loop', () => {
     triggerUpdate();
 
     await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2));
-    expect(loadHierarchyPage).toHaveBeenLastCalledWith('https://example.com/sample.copc.laz', {
+    // First arg is a status-checked Getter, not the raw URL (#139) — the
+    // default string-based getter never inspects the response status, so a
+    // permanent 4xx would come back as body bytes instead of a classifiable
+    // error.
+    expect(loadHierarchyPage).toHaveBeenLastCalledWith(expect.any(Function), {
       pageOffset: 100,
       pageLength: 20,
     });
@@ -513,6 +524,52 @@ describe('CopcDataSource update loop', () => {
     clock.advance(60_000);
     triggerUpdate();
     expect(loadHierarchyPage).toHaveBeenCalledTimes(4);
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('gives up on a hierarchy page after a single permanent 4xx instead of retrying it (#139)', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    const notFound = new Error('HTTP 404') as Error & { status: number };
+    notFound.status = 404;
+    loadHierarchyPage.mockRejectedValueOnce(notFound);
+    selectNodesMock.mockImplementation((opts: unknown) => {
+      (opts as { onPageNeeded?: (key: string) => void }).onPageNeeded?.('1-1-1-1');
+      return ['0-0-0-0'];
+    });
+    workerPoolRun.mockResolvedValue(renderData);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clock = useFakeClock();
+
+    const { viewer, triggerUpdate } = makeFakeViewer();
+    await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, { debounceMs: 0 });
+    triggerUpdate();
+    await vi.waitFor(() => expect(loadHierarchyPage).toHaveBeenCalledTimes(2));
+
+    // A settled 404 gives up immediately — no warning for a retry that will
+    // never happen, and no need to wait out a backoff before the give-up.
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Giving up on hierarchy page "1-1-1-1" after 1 attempt'),
+      notFound,
+    );
+
+    // Confirms it's a real give-up, not a pending backoff: even once any
+    // backoff would have elapsed, a further pass must not re-fetch it.
+    clock.advance(60_000);
+    triggerUpdate();
+    expect(loadHierarchyPage).toHaveBeenCalledTimes(2);
 
     warnSpy.mockRestore();
     errorSpy.mockRestore();
