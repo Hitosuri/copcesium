@@ -116,9 +116,16 @@ void main() {
   gl_Position = czm_modelViewProjectionRelativeToEye * vec4(eyeRel, 1.0);
 }`;
 
+// Cesium's shader pipeline recognizes the literal output name "out_FragColor"
+// (its own convention, e.g. PerInstanceFlatColorAppearanceFS) and both
+// auto-injects its "layout(location = 0) out vec4 out_FragColor;"
+// declaration AND regex-rewrites it for the translucent/OIT multi-render-
+// target pass. Declaring it ourselves causes a "redefinition" compile error;
+// using a different name (e.g. "fragColor") leaves the OIT derivation
+// unrecognized and produces an unlocated extra output instead. So: reference
+// out_FragColor, but don't declare it.
 export const fragmentShaderSource = `
 in vec4 v_color;
-out vec4 fragColor;
 void main() {
-  fragColor = v_color;
+  out_FragColor = v_color;
 }`;
