@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-08-17
+
+### Added
+
+- **`maxCacheBytes` bounds the node cache by estimated memory, not just node
+  count.** `maxCacheNodes` alone is a poor proxy for actual memory since
+  nodes vary in point count. `maxCacheBytes` (unset by default) evicts on
+  whichever of the two limits is hit first, estimating each node's size as
+  `pointCount * 21` (the fixed per-point buffer layout). (#120)
+
 ## [1.2.1] - 2026-08-16
 
 ### Fixed
