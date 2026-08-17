@@ -10,7 +10,7 @@ import { createProjector } from './crs/project';
 import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './lod/boundingVolume';
 import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
-import type { PointCloudPrimitive, PointStyle } from './renderer/PointCloudPrimitive';
+import type { PointStyle } from './renderer/PointCloudPrimitive';
 import { COLOR_MODE, buildClassMask } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
@@ -271,7 +271,7 @@ export class CopcDataSource {
     for (const key of this._selectedKeys) {
       const node = this._nodeCache.peek(key);
       if (!node) continue; // still loading
-      const primitive = node.primitive as PointCloudPrimitive;
+      const primitive = node.primitive;
       const show = isInFrustum(this._getSphere(key), cullingVolume);
       if (primitive.show !== show) {
         primitive.show = show;
@@ -322,7 +322,7 @@ export class CopcDataSource {
       for (const key of newSelectedKeys) {
         const node = this._nodeCache.peek(key);
         if (node) {
-          const primitive = node.primitive as PointCloudPrimitive;
+          const primitive = node.primitive;
           if (!primitive.show) {
             primitive.show = true;
             sceneChanged = true;
@@ -342,7 +342,7 @@ export class CopcDataSource {
         if (newSelectedKeys.has(key)) continue;
         const node = this._nodeCache.peek(key);
         if (!node) continue;
-        const primitive = node.primitive as PointCloudPrimitive;
+        const primitive = node.primitive;
         if (!primitive.show) continue;
 
         if (this._isReplacementReady(key, selectionBuckets)) {
@@ -399,7 +399,7 @@ export class CopcDataSource {
 
     return relevant.every((candidate) => {
       const node = this._nodeCache.peek(candidate);
-      return !!node && (node.primitive as PointCloudPrimitive).show;
+      return !!node && node.primitive.show;
     });
   }
 

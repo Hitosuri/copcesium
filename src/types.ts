@@ -1,3 +1,5 @@
+import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
+
 /**
  * How a point's colour is chosen.
  *
@@ -97,6 +99,6 @@ export interface NodeRenderData {
 /** A node built into a Cesium Primitive, ready to be added to the Scene */
 export interface LoadedNode {
   key: string;
-  primitive: unknown;
+  primitive: PointCloudPrimitive;
   pointCount: number;
 }
