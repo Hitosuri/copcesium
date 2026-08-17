@@ -26,6 +26,7 @@ CesiumJS provider for real-time [COPC](https://copc.io/) (Cloud Optimized Point 
 - [Requirements: HTTP Range Requests and CORS](#requirements-http-range-requests-and-cors)
 - [Coordinate systems](#coordinate-systems)
 - [Example](#example)
+- [Roadmap](#roadmap)
 - [Credits](#credits)
 - [License](#license)
 
@@ -126,7 +127,7 @@ Static factory — `CopcDataSource` has no public constructor. Resolves once the
 - `url: string` — URL of the `.copc.laz` file. Must support HTTP Range Requests (see below).
 - `viewer: Cesium.Viewer`
 - `options?: CopcDataSourceOptions` — see [Options](#options).
-- `workerPool?: WorkerPool` — reserved for reusing a pool across data sources, but not yet usable from outside the package ([issue #51](https://github.com/Jangmyun/copcesium/issues/51)). Omit it; each `load()` gets its own pool sized by `concurrency`.
+- `workerPool?: WorkerPool` — internal parameter, not part of the public API yet ([issue #51](https://github.com/Jangmyun/copcesium/issues/51) tracks exposing it for cross-data-source reuse). Omit it; each `load()` gets its own pool sized by `concurrency`.
 
 ### Instance members
 
@@ -138,6 +139,7 @@ class CopcDataSource {
   opacity: number;
   classificationFilter: number[] | undefined;
   intensityRange: [number, number];
+  heightOffset: number;
   readonly maxDepth: number;
   readonly nodeCount: number;
   readonly cacheSize: number;
@@ -154,6 +156,7 @@ class CopcDataSource {
 | `opacity` | Get/set. Updates every currently-rendered node's translucency immediately, no reload. Throws `RangeError` outside 0-1. |
 | `classificationFilter` | Get/set. Assign `undefined` to draw everything again. Throws `RangeError` on a value outside 0-255. |
 | `intensityRange` | Get/set. Assign `undefined` to hand the range back to auto. |
+| `heightOffset` | Get/set. Vertical offset in meters applied to every loaded point, for manually correcting a geoid/vertical-datum mismatch after load — moves the model matrix, not the geometry, so it updates immediately with no reload. Defaults to `0`. |
 | `maxDepth` | Read-only. Deepest octree level present in the loaded hierarchy. |
 | `nodeCount` | Read-only. Total nodes in the hierarchy (loaded or not). |
 | `cacheSize` | Read-only. Nodes currently retained in the LRU cache. |
@@ -230,6 +233,12 @@ npm run dev
 ```
 
 Then open the printed local URL in a browser. Each example under `examples/` is run the same way — `npm install && npm run dev` from its own directory.
+
+## Roadmap
+
+Known limitation, not yet planned as a full feature:
+
+- Exposing `workerPool` as a public parameter so a `WorkerPool` can be reused across multiple `CopcDataSource` instances ([issue #51](https://github.com/Jangmyun/copcesium/issues/51)). Currently each `load()` creates its own pool.
 
 ## Contributing
 
