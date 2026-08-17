@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { parseKey } from '../copc/key';
 
 export type ProjectToCartesian = (x: number, y: number, z: number) => Cesium.Cartesian3;
 
@@ -9,7 +10,7 @@ export function getNodeBoundingSphere(
   project: ProjectToCartesian,
   xyFactor = 1,
 ): Cesium.BoundingSphere {
-  const [level, xi, yi, zi] = key.split('-').map(Number);
+  const [level, xi, yi, zi] = parseKey(key);
   const nodeHalfSize = rootHalfSize / Math.pow(2, level);
 
   const cx = rootCenter.x - rootHalfSize + (2 * xi + 1) * nodeHalfSize;

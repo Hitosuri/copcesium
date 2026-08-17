@@ -1,3 +1,5 @@
+import { parseKey } from './key';
+
 /** Extracts the depth (D) from a COPC hierarchy node key (VoxelKey, "D-X-Y-Z"). */
 export function getDepth(key: string): number {
   return parseInt(key.split('-')[0]);
@@ -8,7 +10,7 @@ export function getDepth(key: string): number {
  * D-X-Y-Z → (D-1)-(X>>1)-(Y>>1)-(Z>>1)
  */
 export function getParentKey(key: string): string | null {
-  const [d, x, y, z] = key.split('-').map(Number);
+  const [d, x, y, z] = parseKey(key);
   if (d === 0) return null;
   return `${d - 1}-${x >> 1}-${y >> 1}-${z >> 1}`;
 }
@@ -19,8 +21,8 @@ export function getParentKey(key: string): string | null {
  * right by the depth difference yields its ancestor's indices at that depth.
  */
 export function isAncestorOf(ancestorKey: string, key: string): boolean {
-  const [ad, ax, ay, az] = ancestorKey.split('-').map(Number);
-  const [d, x, y, z] = key.split('-').map(Number);
+  const [ad, ax, ay, az] = parseKey(ancestorKey);
+  const [d, x, y, z] = parseKey(key);
   const shift = d - ad;
   if (shift <= 0) return false;
   return x >> shift === ax && y >> shift === ay && z >> shift === az;
@@ -41,7 +43,7 @@ export interface ParsedKey {
 export function bucketKeysByDepth(keys: Iterable<string>): Map<number, ParsedKey[]> {
   const buckets = new Map<number, ParsedKey[]>();
   for (const key of keys) {
-    const [d, x, y, z] = key.split('-').map(Number);
+    const [d, x, y, z] = parseKey(key);
     let bucket = buckets.get(d);
     if (!bucket) buckets.set(d, (bucket = []));
     bucket.push({ key, x, y, z });
@@ -58,7 +60,7 @@ export function bucketKeysByDepth(keys: Iterable<string>): Map<number, ParsedKey
  * difference).
  */
 export function findRelevantKeys(key: string, buckets: Map<number, ParsedKey[]>): string[] {
-  const [d, x, y, z] = key.split('-').map(Number);
+  const [d, x, y, z] = parseKey(key);
   const relevant: string[] = [];
   for (const [cd, candidates] of buckets) {
     if (cd === d) continue;
@@ -79,7 +81,7 @@ export function findRelevantKeys(key: string, buckets: Map<number, ParsedKey[]>)
  * D-X-Y-Z → (D+1)-(2X+dx)-(2Y+dy)-(2Z+dz), dx/dy/dz ∈ {0,1}
  */
 export function getChildKeys(key: string): string[] {
-  const [d, x, y, z] = key.split('-').map(Number);
+  const [d, x, y, z] = parseKey(key);
   const nd = d + 1,
     nx = x * 2,
     ny = y * 2,
