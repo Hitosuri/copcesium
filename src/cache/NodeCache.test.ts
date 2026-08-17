@@ -8,12 +8,12 @@ function makeNode(key: string): LoadedNode {
 
 describe('NodeCache', () => {
   it('returns undefined for a key that was never set', () => {
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     expect(cache.get('missing')).toBeUndefined();
   });
 
   it('returns the exact node that was set for a key', () => {
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     const node = makeNode('a');
     cache.set('a', node);
     expect(cache.get('a')).toBe(node);
@@ -21,7 +21,7 @@ describe('NodeCache', () => {
 
   it('evicts the least-recently-used entry once over budget', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     const c = makeNode('c');
@@ -38,7 +38,7 @@ describe('NodeCache', () => {
 
   it('get() bumps recency so a subsequent insert evicts a different entry', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     const c = makeNode('c');
@@ -55,7 +55,7 @@ describe('NodeCache', () => {
 
   it('set() on an existing key updates it and bumps recency', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const aUpdated = makeNode('a');
     const b = makeNode('b');
@@ -76,7 +76,7 @@ describe('NodeCache', () => {
 
   it('hands the replaced node to onEvict when overwriting a key, so its primitive is not leaked', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     const a = makeNode('a');
     const aReplacement = makeNode('a');
 
@@ -89,7 +89,7 @@ describe('NodeCache', () => {
 
   it('does not evict when the same node object is re-set (a pure recency bump)', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     const a = makeNode('a');
 
     cache.set('a', a);
@@ -101,7 +101,7 @@ describe('NodeCache', () => {
 
   it('peek() returns a node without bumping its LRU recency', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     const c = makeNode('c');
@@ -116,12 +116,12 @@ describe('NodeCache', () => {
   });
 
   it('peek() returns undefined for a key that was never set', () => {
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     expect(cache.peek('missing')).toBeUndefined();
   });
 
   it('size reflects the number of currently cached nodes', () => {
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     expect(cache.size).toBe(0);
 
     cache.set('a', makeNode('a'));
@@ -134,7 +134,7 @@ describe('NodeCache', () => {
 
   it('never evicts a pinned node even if it is the least-recently-used one', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     const c = makeNode('c');
@@ -150,7 +150,7 @@ describe('NodeCache', () => {
 
   it('stays over budget without evicting anything when every entry is pinned', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(1, undefined, onEvict);
+    const cache = new NodeCache(1, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
 
@@ -165,7 +165,7 @@ describe('NodeCache', () => {
 
   it('pin() replaces the previously pinned set rather than adding to it', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(1, undefined, onEvict);
+    const cache = new NodeCache(1, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
 
@@ -182,7 +182,7 @@ describe('NodeCache', () => {
     // gets (the per-frame path reads via peek()), so without it the Map
     // stays in insertion order and eviction is FIFO by load time.
     const onEvict = vi.fn();
-    const cache = new NodeCache(2, undefined, onEvict);
+    const cache = new NodeCache(2, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     const c = makeNode('c');
@@ -199,7 +199,7 @@ describe('NodeCache', () => {
 
   it('pin() ignores keys that are not cached yet, without creating entries for them', () => {
     // _updateLoD() pins the whole selection, including nodes still in flight.
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     cache.set('a', makeNode('a'));
 
     cache.pin(new Set(['a', 'still-loading']));
@@ -210,7 +210,7 @@ describe('NodeCache', () => {
 
   it('destroy() evicts every remaining node via onEvict', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     const a = makeNode('a');
     const b = makeNode('b');
     cache.set('a', a);
@@ -224,7 +224,7 @@ describe('NodeCache', () => {
   });
 
   it('clears the cache on destroy(), so get() afterward returns undefined', () => {
-    const cache = new NodeCache(10, undefined, vi.fn());
+    const cache = new NodeCache(10, vi.fn());
     cache.set('a', makeNode('a'));
 
     cache.destroy();
@@ -234,7 +234,7 @@ describe('NodeCache', () => {
 
   it('is idempotent — calling destroy() twice does not evict twice', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     cache.set('a', makeNode('a'));
 
     cache.destroy();
@@ -245,7 +245,7 @@ describe('NodeCache', () => {
 
   it('immediately evicts anything set() after destroy() instead of dropping it silently', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     cache.destroy();
 
     const late = makeNode('late');
@@ -259,7 +259,7 @@ describe('NodeCache', () => {
     const onEvict = vi.fn();
     // 21 bytes/point * 100 points = 2100 bytes/node; budget of 3000 fits one
     // node but not two.
-    const cache = new NodeCache(10, 3000, onEvict);
+    const cache = new NodeCache(10, onEvict, 3000);
     const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
     const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
 
@@ -273,7 +273,7 @@ describe('NodeCache', () => {
 
   it('does not evict on byte size when maxBytes is undefined, however large pointCount gets', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, undefined, onEvict);
+    const cache = new NodeCache(10, onEvict);
     const huge: LoadedNode = { key: 'huge', primitive: {}, pointCount: 10_000_000 };
 
     cache.set('huge', huge);
@@ -285,7 +285,7 @@ describe('NodeCache', () => {
   it('stops evicting once back under maxBytes, without over-evicting past it', () => {
     const onEvict = vi.fn();
     // Budget for exactly two 100-point (2100-byte) nodes.
-    const cache = new NodeCache(10, 4200, onEvict);
+    const cache = new NodeCache(10, onEvict, 4200);
     const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
     const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
     const c: LoadedNode = { key: 'c', primitive: {}, pointCount: 100 };
@@ -301,7 +301,7 @@ describe('NodeCache', () => {
 
   it('subtracts a node from the byte total once it is evicted, so freed bytes are not double-counted', () => {
     const onEvict = vi.fn();
-    const cache = new NodeCache(10, 2100, onEvict);
+    const cache = new NodeCache(10, onEvict, 2100);
     const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
     const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
     const c: LoadedNode = { key: 'c', primitive: {}, pointCount: 100 };

@@ -152,8 +152,10 @@ export class CopcDataSource {
       opacity: validateOpacity(options.opacity),
     };
     this._autoIntensityRange = options.intensityRange === undefined;
-    this._nodeCache = new NodeCache(options.maxCacheNodes, options.maxCacheBytes, (_key, node) =>
-      this._destroyLoadedNode(node),
+    this._nodeCache = new NodeCache(
+      options.maxCacheNodes,
+      (_key, node) => this._destroyLoadedNode(node),
+      options.maxCacheBytes,
     );
     // Caps concurrent Range Requests at the worker pool's size, so fetching
     // can't outrun decoding the way it did before this was wired up (#86).

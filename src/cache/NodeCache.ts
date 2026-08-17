@@ -29,8 +29,8 @@ export class NodeCache {
 
   constructor(
     private readonly maxNodes: number,
-    private readonly maxBytes: number | undefined,
     private readonly onEvict: (key: string, node: LoadedNode) => void,
+    private readonly maxBytes?: number,
   ) {}
 
   get(key: string): LoadedNode | undefined {
