@@ -4,7 +4,7 @@ import { Copc, type Hierarchy } from 'copc';
 import type { ColorMode, CopcDataSourceOptions, LoadedNode, NodeRenderData } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
 import { bucketKeysByDepth, findRelevantKeys, getDepth, type ParsedKey } from './copc/node';
-import { RangeFetcher } from './copc/RangeFetcher';
+import { isRetryable, RangeFetcher } from './copc/RangeFetcher';
 import { detectCrs } from './crs/detectCrs';
 import { createProjector } from './crs/project';
 import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './lod/boundingVolume';
@@ -497,6 +497,28 @@ export class CopcDataSource {
     }
   }
 
+  /** A single-attempt, status-checked Getter for `Copc.loadHierarchyPage()`.
+   *  The default getter it falls back to when passed a URL never inspects
+   *  the response status, so a 404/416 comes back as body bytes instead of a
+   *  classifiable error, and `_loadPage()` can't tell it apart from a
+   *  transient failure worth retrying. Retrying is `_loadPage()`'s own job
+   *  (it already owns the attempt count and backoff), so this makes exactly
+   *  one attempt and lets the caller decide what to do with a failure. */
+  private _fetchHierarchyPageBytes = async (begin: number, end: number): Promise<Uint8Array> => {
+    const response = await fetch(this._url, { headers: { Range: `bytes=${begin}-${end - 1}` } });
+    // Strictly 206, not merely `ok` — same reasoning as RangeFetcher (#117):
+    // a 200 means the server ignored the Range header and sent the whole
+    // file, which would otherwise be silently misread as just this page.
+    if (response.status !== 206) {
+      const err = new Error(
+        `CopcDataSource: server returned HTTP ${response.status} for hierarchy page bytes=${begin}-${end - 1} (expected 206 Partial Content)`,
+      ) as Error & { status: number };
+      err.status = response.status;
+      throw err;
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  };
+
   /** Loads a hierarchy sub-page, merges its nodes/pages into the live maps,
    *  and re-runs LoD selection so the newly revealed depth can be picked up. */
   private async _loadPage(key: string): Promise<void> {
@@ -511,7 +533,7 @@ export class CopcDataSource {
     }
     this._pendingPages.add(key);
     try {
-      const { nodes, pages } = await Copc.loadHierarchyPage(this._url, page);
+      const { nodes, pages } = await Copc.loadHierarchyPage(this._fetchHierarchyPageBytes, page);
       if (this._destroyed) return;
       Object.assign(this._nodes, nodes);
       for (const nodeKey of Object.keys(nodes)) {
@@ -527,14 +549,17 @@ export class CopcDataSource {
       const recent = failure && now - failure.at < PAGE_FAILURE_RESET_MS;
       const attempts = recent ? failure.count + 1 : 1;
       this._pageFailures.set(key, { count: attempts, at: now });
-      if (attempts >= MAX_PAGE_LOAD_ATTEMPTS) {
+      // A settled 4xx (e.g. 404 on a removed page, 416 on a bad range) never
+      // succeeds on retry, so it gives up on the first attempt instead of
+      // burning MAX_PAGE_LOAD_ATTEMPTS and their backoff delays (#139).
+      if (attempts >= MAX_PAGE_LOAD_ATTEMPTS || !isRetryable(err)) {
         // Give up: drop the entry point so `onPageNeeded` never fires for it
         // again, and log an error once here rather than on every attempt so a
         // transient outage doesn't scroll the console.
         delete this._pages[key];
         this._pageFailures.delete(key);
         console.error(
-          `[CopcDataSource] Giving up on hierarchy page "${key}" after ${attempts} attempts:`,
+          `[CopcDataSource] Giving up on hierarchy page "${key}" after ${attempts} attempt${attempts === 1 ? '' : 's'}:`,
           err,
         );
       } else {
