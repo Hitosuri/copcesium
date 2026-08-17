@@ -254,4 +254,66 @@ describe('NodeCache', () => {
     expect(onEvict).toHaveBeenCalledExactlyOnceWith('late', late);
     expect(cache.get('late')).toBeUndefined();
   });
+
+  it('evicts by estimated byte size (pointCount * 21) once maxBytes is exceeded, even under the node-count cap', () => {
+    const onEvict = vi.fn();
+    // 21 bytes/point * 100 points = 2100 bytes/node; budget of 3000 fits one
+    // node but not two.
+    const cache = new NodeCache(10, onEvict, 3000);
+    const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
+    const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
+
+    cache.set('a', a);
+    cache.set('b', b); // still well under maxNodes, but over maxBytes -> evicts 'a'
+
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith('a', a);
+    expect(cache.get('a')).toBeUndefined();
+    expect(cache.get('b')).toBe(b);
+  });
+
+  it('does not evict on byte size when maxBytes is undefined, however large pointCount gets', () => {
+    const onEvict = vi.fn();
+    const cache = new NodeCache(10, onEvict);
+    const huge: LoadedNode = { key: 'huge', primitive: {}, pointCount: 10_000_000 };
+
+    cache.set('huge', huge);
+
+    expect(onEvict).not.toHaveBeenCalled();
+    expect(cache.get('huge')).toBe(huge);
+  });
+
+  it('stops evicting once back under maxBytes, without over-evicting past it', () => {
+    const onEvict = vi.fn();
+    // Budget for exactly two 100-point (2100-byte) nodes.
+    const cache = new NodeCache(10, onEvict, 4200);
+    const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
+    const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
+    const c: LoadedNode = { key: 'c', primitive: {}, pointCount: 100 };
+
+    cache.set('a', a);
+    cache.set('b', b);
+    cache.set('c', c); // over by one node's worth -> evicts only 'a'
+
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith('a', a);
+    expect(cache.get('b')).toBe(b);
+    expect(cache.get('c')).toBe(c);
+  });
+
+  it('subtracts a node from the byte total once it is evicted, so freed bytes are not double-counted', () => {
+    const onEvict = vi.fn();
+    const cache = new NodeCache(10, onEvict, 2100);
+    const a: LoadedNode = { key: 'a', primitive: {}, pointCount: 100 };
+    const b: LoadedNode = { key: 'b', primitive: {}, pointCount: 100 };
+    const c: LoadedNode = { key: 'c', primitive: {}, pointCount: 100 };
+
+    cache.set('a', a);
+    cache.set('b', b); // evicts 'a', leaving only 'b' (2100 bytes, at budget)
+    cache.set('c', c); // evicts 'b', leaving only 'c'
+
+    expect(onEvict.mock.calls).toEqual([
+      ['a', a],
+      ['b', b],
+    ]);
+    expect(cache.get('c')).toBe(c);
+  });
 });

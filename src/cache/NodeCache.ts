@@ -1,9 +1,16 @@
 import type { LoadedNode } from '../types';
 
+/** Fixed per-point byte layout: `positions` 12B + `colors` 4B + `intensities`
+ *  2B + `classifications` 1B + `elevations` 2B. A precise per-node GPU-usage
+ *  measurement isn't cheap enough to be worth it, but this compile-time-fixed
+ *  layout gives a predictable memory bound without measuring anything. */
+const BYTES_PER_POINT = 21;
+
 /**
- * LRU cache for loaded COPC nodes, bounded by node count rather than memory
- * (measuring actual per-point GPU usage isn't cheap enough to be worth it —
- * see the issue's "alternatives considered").
+ * LRU cache for loaded COPC nodes, bounded by node count and, optionally, by
+ * memory (`maxBytes`, estimated from `pointCount * BYTES_PER_POINT` — see
+ * that constant's doc comment). Eviction stops as soon as either bound is
+ * satisfied.
  *
  * Backed by a `Map`, which preserves insertion order: `get`/`set`/`pin` bump
  * an entry by deleting and re-inserting it, so the least-recently-used entry
@@ -18,10 +25,12 @@ export class NodeCache {
   private readonly nodes = new Map<string, LoadedNode>();
   private pinned: ReadonlySet<string> = new Set();
   private destroyed = false;
+  private bytes = 0;
 
   constructor(
     private readonly maxNodes: number,
     private readonly onEvict: (key: string, node: LoadedNode) => void,
+    private readonly maxBytes?: number,
   ) {}
 
   get(key: string): LoadedNode | undefined {
@@ -54,6 +63,10 @@ export class NodeCache {
     const prev = this.nodes.get(key);
     if (prev !== undefined && prev !== node) {
       this.onEvict(key, prev);
+    }
+    if (prev !== node) {
+      if (prev !== undefined) this.bytes -= this._nodeBytes(prev);
+      this.bytes += this._nodeBytes(node);
     }
     this.nodes.delete(key);
     this.nodes.set(key, node);
@@ -90,18 +103,28 @@ export class NodeCache {
       this.onEvict(key, node);
     }
     this.nodes.clear();
+    this.bytes = 0;
+  }
+
+  private _nodeBytes(node: LoadedNode): number {
+    return node.pointCount * BYTES_PER_POINT;
+  }
+
+  private _isOverBudget(): boolean {
+    return this.nodes.size > this.maxNodes || (this.maxBytes !== undefined && this.bytes > this.maxBytes);
   }
 
   private _evictOverBudget(): void {
-    if (this.nodes.size <= this.maxNodes) return;
+    if (!this._isOverBudget()) return;
     // Iterates in insertion (= least-recently-used-first) order. Deleting the
     // current key mid-iteration is well-defined and doesn't disturb keys the
     // iterator hasn't reached yet.
     for (const key of this.nodes.keys()) {
-      if (this.nodes.size <= this.maxNodes) break;
+      if (!this._isOverBudget()) break;
       if (this.pinned.has(key)) continue;
       const node = this.nodes.get(key)!;
       this.nodes.delete(key);
+      this.bytes -= this._nodeBytes(node);
       this.onEvict(key, node);
     }
   }

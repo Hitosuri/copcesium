@@ -19,6 +19,14 @@ export interface CopcDataSourceOptions {
   concurrency?: number;
   debounceMs?: number;
   maxCacheNodes?: number;
+  /**
+   * Bounds the node cache by memory too, on top of `maxCacheNodes`: a node's
+   * size is `pointCount * 21` bytes, the fixed per-point layout (`positions`
+   * 12B + `colors` 4B + `intensities` 2B + `classifications` 1B +
+   * `elevations` 2B). Omit for no byte-based limit, since a sensible default
+   * depends on the dataset's typical points-per-node.
+   */
+  maxCacheBytes?: number;
   maxVisibleNodes?: number;
   /**
    * Bounds the render set by total point count across selected nodes, on top

@@ -83,6 +83,7 @@ interface CopcDataSourceOptions {
   concurrency?: number;
   debounceMs?: number;
   maxCacheNodes?: number;
+  maxCacheBytes?: number;
   maxVisibleNodes?: number;
   maxPoints?: number;
   pixelSize?: number;
@@ -107,6 +108,7 @@ interface CopcDataSourceOptions {
 | `concurrency` | `5` | Number of Worker threads decoding nodes in parallel. Ignored if a `workerPool` is passed to `load()`. |
 | `debounceMs` | `100` | Minimum interval between full LoD re-selection passes. A lighter frustum-only visibility check still runs every frame. |
 | `maxCacheNodes` | `150` | Maximum nodes kept in memory (LRU) before the least-recently-used, currently-unselected ones are torn down. |
+| `maxCacheBytes` | none | Maximum estimated bytes kept in memory, on top of `maxCacheNodes` — evicts on whichever limit is hit first. Estimated as `pointCount * 21` per node (the fixed per-point buffer layout). Unset by default, since a sensible value depends on the dataset's typical points-per-node. |
 | `maxVisibleNodes` | `100` | Maximum nodes selected for rendering in a single LoD pass. |
 | `maxPoints` | `5,000,000` | Maximum total points across selected nodes in a single LoD pass, on top of `maxVisibleNodes`. |
 | `pixelSize` | `2` | Point size in pixels. Live-adjustable after load via `dataSource.pixelSize`. |
