@@ -312,16 +312,8 @@ export class CopcDataSource {
         }),
       );
 
-      for (const key of neededPages) {
-        if (!this._pendingPages.has(key)) void this._loadPage(key);
-      }
-
-      // A load still in flight for a key the camera has since moved past is
-      // decoding data nobody will show; cancel it so its worker slot frees up
-      // for the current selection instead (#86).
-      for (const key of this._pendingKeys) {
-        if (!newSelectedKeys.has(key)) this._cancels.get(key)?.();
-      }
+      this._dispatchPageLoads(neededPages);
+      this._cancelStaleLoads(newSelectedKeys);
 
       let sceneChanged = false;
 
@@ -370,6 +362,23 @@ export class CopcDataSource {
         this._pendingUpdate = false;
         void this._updateLoD();
       }
+    }
+  }
+
+  /** Kicks off a hierarchy page load for every page the current selection
+   *  pass needed but that isn't already loading. */
+  private _dispatchPageLoads(neededPages: Set<string>): void {
+    for (const key of neededPages) {
+      if (!this._pendingPages.has(key)) void this._loadPage(key);
+    }
+  }
+
+  /** A load still in flight for a key the camera has since moved past is
+   *  decoding data nobody will show; cancel it so its worker slot frees up
+   *  for the current selection instead (#86). */
+  private _cancelStaleLoads(newSelectedKeys: Set<string>): void {
+    for (const key of this._pendingKeys) {
+      if (!newSelectedKeys.has(key)) this._cancels.get(key)?.();
     }
   }
 
