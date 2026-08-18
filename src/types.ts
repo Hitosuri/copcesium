@@ -16,7 +16,24 @@ export interface CopcDataSourceOptions {
   proj?: string;
   projDef?: string | null;
   geoidOffset?: number;
+  /**
+   * Worker pool size — how many nodes decode at once. Also the default for
+   * `maxConcurrentRequests`. Default `5`.
+   */
   concurrency?: number;
+  /**
+   * How many HTTP Range Requests may be in flight at once. Defaults to
+   * `concurrency`, which is how the two were fused before they could be set
+   * apart.
+   *
+   * They bound stages with different shapes. Decoding is CPU-bound and
+   * saturates at a handful of workers; fetching is latency-bound, so a
+   * high-RTT link keeps far more requests usefully in flight than there are
+   * cores. Raising `concurrency` to buy fetch parallelism also spawns that
+   * many workers, each carrying its own laz-perf WASM instance, which is
+   * memory spent on a stage that was never the bottleneck.
+   */
+  maxConcurrentRequests?: number;
   debounceMs?: number;
   maxCacheNodes?: number;
   /**
@@ -106,7 +123,8 @@ export interface NodeRenderData {
 
 /** Latency distribution for one stage of the per-node load pipeline. */
 export interface StageTiming {
-  /** Nodes that completed this stage since load. */
+  /** Nodes that completed this stage since load. Unbounded — unlike the
+   *  window the percentiles below are drawn from. */
   count: number;
   /** Median and 95th percentile, in milliseconds, over a rolling window of
    *  recent nodes. Percentiles rather than a mean because the two failure
@@ -137,7 +155,12 @@ export interface CopcStats {
   fetch: StageTiming;
   /** LAZ decode plus coordinate transform, in a worker. */
   decode: StageTiming;
-  /** Building the Cesium primitive and uploading its buffers to the GPU. */
+  /** Creating the node's GPU vertex buffers and shader, measured on the first
+   *  frame it is drawn — that is when a rendering context exists. A node that
+   *  is decoded but never shown (the camera moved on, or it lost a budget cut)
+   *  never reaches the GPU, so `upload.count` trails `decode.count` by however
+   *  many of those the session accumulated. That gap is information, not a
+   *  dropped sample. */
   upload: StageTiming;
 }
 
