@@ -77,3 +77,11 @@ body,
 .status {
   color: #555;
 }
+
+.sources {
+  font-size: 12px;
+}
+
+.sources a {
+  color: #555;
+}

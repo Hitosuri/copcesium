@@ -21,6 +21,8 @@
       #urlInput { width: 100%; }
       #error { color: red; white-space: pre-wrap; }
       #status { color: #555; }
+      #sources { font-size: 12px; }
+      #sources a { color: #555; }
     </style>
   </head>
   <body>
@@ -30,6 +32,10 @@
       <label id="datasetLabel">sample data:
         <select id="datasetSelect"></select>
       </label>
+      <div id="sources">
+        Sample COPC files hosted by Hobu, Inc. —
+        <a href="https://github.com/Jangmyun/copcesium/blob/main/examples/DATA_SOURCES.md" target="_blank" rel="noopener">data credits ↗</a>
+      </div>
       <input id="urlInput" type="text" placeholder="COPC URL" />
       <div>
         <button id="loadBtn">Load</button>

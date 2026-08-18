@@ -728,6 +728,24 @@ export default function ViewerContent({
                 <span className="metaVal">{stats?.cacheSize ?? '—'}</span>
               </div>
               {error && <div className="error">{error}</div>}
+              <div className="divider" />
+              <div className="secLabel">Credit</div>
+              <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.6, marginBottom: 10 }}>
+                {datasetIndex !== null
+                  ? SAMPLE_DATASETS[datasetIndex].credit
+                  : 'Custom URL — no credit on file, see full sources list below.'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 6 }}>
+                Sample COPC files hosted by Hobu, Inc.
+              </div>
+              <a
+                href="https://github.com/Jangmyun/copcesium/blob/main/examples/DATA_SOURCES.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}
+              >
+                All sample data credits ↗
+              </a>
             </>
           )}
 
