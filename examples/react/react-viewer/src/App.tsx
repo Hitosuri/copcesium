@@ -185,6 +185,16 @@ export default function App() {
             ))}
           </select>
         </label>
+        <div className="sources">
+          Sample COPC files hosted by Hobu, Inc. —{' '}
+          <a
+            href="https://github.com/Jangmyun/copcesium/blob/main/examples/DATA_SOURCES.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            data credits ↗
+          </a>
+        </div>
         <input
           className="urlInput"
           type="text"

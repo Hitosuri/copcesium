@@ -4,6 +4,9 @@ export interface SampleDataset {
   label: string;
   url: string;
   options: CopcDataSourceOptions;
+  // One-line attribution shown in the Info tab. Full writeup with
+  // verification method: examples/DATA_SOURCES.md.
+  credit: string;
 }
 
 // Freely streamable public COPC files (HTTP range requests, no auth). Sizes
@@ -26,52 +29,62 @@ export const SAMPLE_DATASETS: SampleDataset[] = [
         ' +x_0=399999.9999999999 +y_0=0 +datum=NAD83 +units=ft +no_defs',
       geoidOffset: -20,
     },
+    credit: 'Watershed Sciences, Inc. (2010), Eugene, OR — PDAL/data, CC-BY-4.0',
   },
   {
     label: 'Red Rocks (Large) — Colorado, USA (~13.2 MB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.large.copc.laz',
     options: {},
+    credit: 'Red Rocks Amphitheatre, Morrison, CO — original capture source unconfirmed',
   },
   {
     label: 'Kate (~71.9 MB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/kate.copc.laz',
     options: {},
+    credit: 'VT/QC border area — original capture source unconfirmed',
   },
   {
     label: 'Niagara Region — Ontario, Canada (~140.3 MB)',
     url: 'https://canelevation-lidar-point-clouds.s3.ca-central-1.amazonaws.com/pointclouds_nuagespoints/NRCAN/Hamilton_Niagara_2021_2/ON_Niagara_20210525_NAD83CSRS_UTM17N_1km_E656_N4771_CLASS.copc.laz',
     options: {},
+    credit: 'NRCan CanElevation Series — Hamilton–Niagara 2021 (Open Government Licence)',
   },
   {
     label: 'Trestle Bridge — Fort Leonard Wood, Missouri, USA (~324.8 MB)',
     url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
     options: {},
+    credit: 'NGA / US Army TPO-GEO, Fort Leonard Wood, MO (2021-04)',
   },
   {
     label: 'Millsite Reservoir — Utah, USA (~1.4 GB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/millsite.copc.laz',
     options: {},
+    credit: 'USGS 3DEP — Millsite Reservoir, UT (2017)',
   },
   {
     label: 'SoFi Stadium — Inglewood, California, USA (~2.0 GB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/sofi.copc.laz',
     options: {},
+    credit: 'SoFi Stadium, Inglewood, CA — original capture source unconfirmed',
   },
   {
     label: 'Iowa 3DEP (2019–2020) — Iowa, USA (~3.6 GB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/iowa-50m-3dep-2019-2020.copc.laz',
     options: {},
+    credit: 'USGS 3DEP — Eastern Iowa (2019–2020), USDA-NRCS / Iowa DALS',
   },
 
   {
     label: 'New York City — New York, USA (~26.5 GB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/nyc.copc.laz',
     options: {},
+    credit: 'USGS CMGP LiDAR: Post Sandy, NYC (2013–2014) — flown by Woolpert for NGA',
   },
   {
     label: 'Montréal — Québec, Canada (~51.9 GB)',
     url: 'https://s3.amazonaws.com/hobu-lidar/montreal-2015.copc.laz',
     options: {},
+    credit: 'Ville de Montréal — LiDAR aérien 2015, XEOS Imaging',
   },
 ];
 

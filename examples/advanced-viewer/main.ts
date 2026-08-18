@@ -47,6 +47,9 @@ interface PresetConfig {
   url: string;
   size: string;
   options?: CopcDataSourceOptions;
+  // One-line attribution shown in the Info tab. Full writeup with
+  // verification method: examples/DATA_SOURCES.md.
+  credit: string;
 }
 const PRESETS: Record<string, PresetConfig> = {
   autzen: {
@@ -62,51 +65,61 @@ const PRESETS: Record<string, PresetConfig> = {
         ' +x_0=399999.9999999999 +y_0=0 +datum=NAD83 +units=ft +no_defs',
       geoidOffset: -20,
     },
+    credit: 'Watershed Sciences, Inc. (2010), Eugene, OR — PDAL/data, CC-BY-4.0',
   },
   redrocksLarge: {
     label: 'Red Rocks (Large)',
     url: 'https://s3.amazonaws.com/hobu-lidar/redrocks.large.copc.laz',
     size: '~13.2 MB',
+    credit: 'Red Rocks Amphitheatre, Morrison, CO — original capture source unconfirmed',
   },
   kate: {
     label: 'Kate',
     url: 'https://s3.amazonaws.com/hobu-lidar/kate.copc.laz',
     size: '~71.9 MB',
+    credit: 'VT/QC border area — original capture source unconfirmed',
   },
   niagara: {
     label: 'Niagara Region',
     url: 'https://canelevation-lidar-point-clouds.s3.ca-central-1.amazonaws.com/pointclouds_nuagespoints/NRCAN/Hamilton_Niagara_2021_2/ON_Niagara_20210525_NAD83CSRS_UTM17N_1km_E656_N4771_CLASS.copc.laz',
     size: '~140.3 MB',
+    credit: 'NRCan CanElevation Series — Hamilton–Niagara 2021 (Open Government Licence)',
   },
   trestle: {
     label: 'Trestle Bridge',
     url: 'https://s3.amazonaws.com/grid-public-ept/20210421-FLW-Trestle-low-attitude.copc.laz',
     size: '~324.8 MB',
+    credit: 'NGA / US Army TPO-GEO, Fort Leonard Wood, MO (2021-04)',
   },
   millsite: {
     label: 'Millsite Reservoir',
     url: 'https://s3.amazonaws.com/hobu-lidar/millsite.copc.laz',
     size: '~1.4 GB',
+    credit: 'USGS 3DEP — Millsite Reservoir, UT (2017)',
   },
   sofi: {
     label: 'SoFi Stadium',
     url: 'https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz',
     size: '~2.0 GB',
+    credit: 'SoFi Stadium, Inglewood, CA — original capture source unconfirmed',
   },
   iowa3dep: {
     label: 'Iowa 3DEP (2019–2020)',
     url: 'https://s3.amazonaws.com/hobu-lidar/iowa-50m-3dep-2019-2020.copc.laz',
     size: '~3.6 GB',
+    credit: 'USGS 3DEP — Eastern Iowa (2019–2020), USDA-NRCS / Iowa DALS',
   },
   nyc: {
     label: 'New York City',
     url: 'https://s3.amazonaws.com/hobu-lidar/nyc.copc.laz',
     size: '~26.5 GB',
+    credit: 'USGS CMGP LiDAR: Post Sandy, NYC (2013–2014) — flown by Woolpert for NGA',
   },
   montreal: {
     label: 'Montréal',
     url: 'https://s3.amazonaws.com/hobu-lidar/montreal-2015.copc.laz',
     size: '~51.9 GB',
+    credit: 'Ville de Montréal — LiDAR aérien 2015, XEOS Imaging',
   },
 };
 
@@ -161,6 +174,7 @@ const pixelSizeDisplay = document.getElementById('pixelSizeDisplay')!;
 const infoName = document.getElementById('infoName')!;
 const infoMeta = document.getElementById('infoMeta')!;
 const infoStatus = document.getElementById('infoStatus')!;
+const infoCredit = document.getElementById('infoCredit')!;
 
 const chipDot = document.getElementById('chipDot')!;
 const chipName = document.getElementById('chipName')!;
@@ -552,6 +566,9 @@ async function loadCopc(
   errorBanner.textContent = '';
   setChipState('loading', resolvedLabel);
   infoStatus.textContent = 'Loading…';
+  infoCredit.textContent =
+    Object.values(PRESETS).find((p) => p.url === url)?.credit ??
+    'Custom URL — no credit on file, see full sources list below.';
   loadBtn.disabled = true;
   reloadBtn.disabled = true;
 
