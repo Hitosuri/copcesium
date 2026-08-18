@@ -4,6 +4,10 @@ coverage/
 .env
 .env.local
 
+# CycloneDX SBOM: CI regenerates it per run and uploads it as a build
+# artifact, so the checked-out tree should never carry one.
+sbom.cdx.json
+
 # for gitingest
 digest.txt
 
