@@ -3,6 +3,59 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-08-18
+
+### Added
+
+- **`stats` reports transferred bytes, file size, and per-stage load timing.**
+  A read-only getter on `CopcDataSource` — `fileBytes`, `requestCount`,
+  `transferredBytes`, `pendingNodes`, and `fetch`/`decode`/`upload` breakdowns
+  (`count`/`p50`/`p95`, over a rolling window of the most recent 256 nodes) —
+  so the project's core claim (only streaming what the camera needs) is a
+  number instead of an assertion. Byte counting previously only covered
+  `RangeFetcher`, missing the probe, header, and hierarchy-page requests;
+  `Copc.create()` and the root `loadHierarchyPage()` now go through a shared
+  status-checked, counting `Getter`, which incidentally fixes a 404 on those
+  paths being read as ordinary body bytes instead of a classifiable error (the
+  same class of bug #139 had already fixed for hierarchy sub-pages).
+  `RangeFetcher` also now counts a response's actual received length rather
+  than its declared length at header time, so a request cancelled mid-download
+  (routine once a node falls out of view) is no longer counted as a full
+  transfer. (#181)
+
+### Fixed
+
+- **The point cloud vanished entirely after `camera.lookAt()`, with no error
+  or warning.** Culling and screen-space-error calculations read
+  `camera.position`/`direction`/`up`, which are relative to `camera.transform`
+  — normally identical to their world-coordinate counterparts because the
+  transform is the identity, which is why this went unnoticed. `lookAt()` sets
+  the transform to the target's east-north-up frame, so `camera.position`
+  becomes a short local offset (e.g. `(0, -500, 300)`) while node bounding
+  spheres stay in ECEF coordinates on the order of 6.4e6 — the culling volume
+  ends up built hundreds of meters from Earth's center, with every node
+  falling outside it. `getCullingVolume()` and the screen-space-error
+  calculation now read `positionWC`/`directionWC`/`upWC` instead, which are
+  always world coordinates regardless of the active transform.
+  `zoomTo()`/`flyHome()`/mouse navigation were unaffected, since
+  `flyToBoundingSphere()` resets the transform to identity before moving.
+  (#183)
+- **Three `stats` figures reported something other than their name.**
+  `StageTiming.count` returned the length of the rolling percentile window,
+  capped at 256 — an 81 MB dataset and a 26.5 GB one both reported the same
+  "nodes loaded 256" past that point. The `upload` stage timed
+  `createNodePrimitive()`, which only allocates an object; the actual GPU work
+  (`Buffer.createVertexBuffer`, `VertexArray`, `ShaderProgram`) happens in
+  `PointCloudPrimitive`'s first drawn frame, the only point a rendering
+  context exists, so `upload.p50` dutifully reported 0 ms. And the fixed
+  walk's per-stop percentiles were snapshots of the same session-wide rolling
+  window, so consecutive stops repeated values and a stop that transferred
+  nothing still showed a latency. `count` is now tracked separately from the
+  bounded window; upload timing is measured via a callback fired once, only on
+  a successful first-frame GPU init; and the benchmark's per-stop fields are
+  renamed `session*` to make their scope explicit, joined by genuinely
+  per-stop `nodesDelta` and `bytesPerSec`. (#194)
+
 ## [1.3.1] - 2026-08-17
 
 ### Fixed
