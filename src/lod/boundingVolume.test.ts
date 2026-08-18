@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Cesium from 'cesium';
-import { getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './boundingVolume';
+import { getCullingVolume, getNodeBoundingSphere, isInFrustum, type ProjectToCartesian } from './boundingVolume';
 
 // Identity projection that passes coordinates straight through to Cartesian3 (verifies pure math, no CRS involved)
 const identityProject: ProjectToCartesian = (x, y, z) => new Cesium.Cartesian3(x, y, z);
@@ -65,5 +65,79 @@ describe('isInFrustum', () => {
     const sphere = new Cesium.BoundingSphere(new Cesium.Cartesian3(20, 0, 0), 1);
 
     expect(isInFrustum(sphere, boxCullingVolume)).toBe(false);
+  });
+});
+
+describe('getCullingVolume', () => {
+  // Node spheres live in ECEF, where the ellipsoid radius is ~6.378e6. A camera
+  // under `lookAt()` reads `position`/`direction`/`up` in a small local offset
+  // (tens to hundreds of units) from the target's east-north-up frame — the two
+  // are separated by six orders of magnitude, which is what makes reading the
+  // local vectors as if they were world ones result in "everything culled"
+  // rather than a small pointing error. `boxCullingVolume` above (a synthetic
+  // [-10,10]^3 box) can't exercise that gap; this camera is built the same way
+  // `Camera.lookAt()` builds a real one, at real scale.
+  const target = Cesium.Cartesian3.fromDegrees(0, 0, 0);
+  const transform = Cesium.Transforms.eastNorthUpToFixedFrame(target);
+
+  // What `camera.position/direction/up` read as under a lookAt: a short offset
+  // and orientation in the target's local ENU frame.
+  const localPosition = new Cesium.Cartesian3(0, -500, 300);
+  const localDirection = Cesium.Cartesian3.normalize(
+    Cesium.Cartesian3.negate(localPosition, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  );
+  const localUp = new Cesium.Cartesian3(0, 0, 1);
+
+  // The `WC` variants are what `Camera.js` actually computes: `transform` applied
+  // to the local vectors (translation for position, rotation-only for direction/up).
+  const worldPosition = Cesium.Matrix4.multiplyByPoint(transform, localPosition, new Cesium.Cartesian3());
+  const worldDirection = Cesium.Cartesian3.normalize(
+    Cesium.Matrix4.multiplyByPointAsVector(transform, localDirection, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  );
+  const worldUp = Cesium.Cartesian3.normalize(
+    Cesium.Matrix4.multiplyByPointAsVector(transform, localUp, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  );
+
+  function cameraUnderLookAt(): Cesium.Camera {
+    return {
+      position: localPosition,
+      direction: localDirection,
+      up: localUp,
+      positionWC: worldPosition,
+      directionWC: worldDirection,
+      upWC: worldUp,
+      frustum: new Cesium.PerspectiveFrustum({
+        fov: Cesium.Math.toRadians(60),
+        aspectRatio: 1,
+        near: 1,
+        far: 1e9,
+      }),
+    } as unknown as Cesium.Camera;
+  }
+
+  it('builds the volume from world coordinates, so a camera under lookAt() still sees a node near the target', () => {
+    // Regression: reading `position`/`direction`/`up` (local to the target's ENU
+    // frame, magnitude in the hundreds) put the culling volume near the world
+    // origin instead of near the target on the ellipsoid (magnitude ~6.378e6),
+    // pointed the wrong way besides — every ECEF node fell outside it, and the
+    // whole point cloud blanked for as long as a lookAt transform was active.
+    const volume = getCullingVolume(cameraUnderLookAt());
+    const nodeNearTarget = new Cesium.BoundingSphere(target, 50);
+
+    expect(isInFrustum(nodeNearTarget, volume)).toBe(true);
+  });
+
+  it('still culls a node genuinely outside the frustum', () => {
+    const volume = getCullingVolume(cameraUnderLookAt());
+    // On the opposite side of the ellipsoid from the target, well behind the camera.
+    const antipodalNode = new Cesium.BoundingSphere(
+      Cesium.Cartesian3.negate(target, new Cesium.Cartesian3()),
+      50,
+    );
+
+    expect(isInFrustum(antipodalNode, volume)).toBe(false);
   });
 });
