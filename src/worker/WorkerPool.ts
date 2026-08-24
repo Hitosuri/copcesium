@@ -1,4 +1,11 @@
 /**
+ * Decode stage, main-thread side. Owns a pool of reused Web Workers (running
+ * `worker.ts`) and routes conversion requests to an idle one, so LAZ
+ * decompression and coordinate transforms never block the UI thread. Also
+ * defines the postMessage wire protocol both sides speak.
+ */
+
+/**
  * Wire protocol between WorkerPool and any worker script used with it. A worker
  * must echo back the same `id` it received so WorkerPool can match the reply to
  * the task that produced it.
