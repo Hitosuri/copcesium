@@ -1,3 +1,12 @@
+/**
+ * HTTP fetch stage for node point data. Batches overlapping byte-range
+ * requests for the same COPC file into merged HTTP Range Requests, bounds
+ * how many are in flight at once, and retries retryable failures with
+ * backoff. Only `loadNode`'s point-data fetches go through this class;
+ * hierarchy page loads use their own getter and retry loop in
+ * `CopcDataSource`, reusing this file's `isRetryable` to classify failures
+ * the same way.
+ */
 import type { TransferCounter } from './TransferCounter';
 
 /** Shared by every member of one merged fetch, so the last cancellation in a

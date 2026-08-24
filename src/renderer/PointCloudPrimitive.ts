@@ -1,3 +1,12 @@
+/**
+ * Rendering stage. Not a `Cesium.Primitive` subclass — a standalone class
+ * built on Cesium's low-level DrawCommand API (custom vertex/fragment
+ * shaders from `./shaders`) that uploads one loaded node's decoded points as
+ * a single GPU buffer instead of the per-point JS objects `Cesium.Primitive`
+ * would allocate. Exposes the live-tunable style uniforms (`pixelSize`,
+ * `colorMode`, `opacity`, ...) that `CopcDataSource`'s setters mutate in
+ * place.
+ */
 import * as Cesium from 'cesium';
 import { vertexShaderSource, fragmentShaderSource } from './shaders';
 import type { NodeRenderData } from '../types';
