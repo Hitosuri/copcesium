@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { vertexShaderSource, fragmentShaderSource } from './shaders';
+import { SPLAT_ATTRIBUTE_LOCATIONS, type HqSplatRenderer } from './HqSplatRenderer';
 import type { NodeRenderData } from '../types';
 
 /**
@@ -32,7 +33,11 @@ export interface PointStyle {
 // public type declarations, so only the members this file uses are declared here.
 interface CesiumInternal {
   Buffer: {
-    createVertexBuffer(opts: { context: unknown; typedArray: ArrayBufferView; usage: unknown }): unknown;
+    createVertexBuffer(opts: {
+      context: unknown;
+      typedArray: ArrayBufferView;
+      usage: unknown;
+    }): unknown;
   };
   BufferUsage: { STATIC_DRAW: unknown };
   VertexArray: new (opts: { context: unknown; attributes: unknown[] }) => { destroy(): void };
@@ -40,10 +45,11 @@ interface CesiumInternal {
     fromCache(opts: {
       context: unknown;
       vertexShaderSource: string;
-      fragmentShaderSource: string;
+      fragmentShaderSource: unknown;
       attributeLocations: Record<string, number>;
     }): { destroy(): void };
   };
+  ShaderSource: new (opts: { defines: string[]; sources: string[] }) => unknown;
   DrawCommand: new (opts: Record<string, unknown>) => unknown;
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
   Pass: { OPAQUE: unknown; TRANSLUCENT: unknown };
@@ -57,6 +63,7 @@ interface DrawCommandLike {
   modelMatrix: Cesium.Matrix4;
   pass: unknown;
   renderState: unknown;
+  framebuffer: unknown;
 }
 
 // Cesium.Primitive allocates a JS object per point; this DrawCommand-based
@@ -84,12 +91,25 @@ export class PointCloudPrimitive {
   private _sp: { destroy(): void } | null;
   /** Fired once, after the first successful `_initGpu()`, then dropped. */
   private _onGpuInit: ((startedAt: number, endedAt: number) => void) | null;
+  /**
+   * The spacing this node's points are drawn at, which is not its own spacing once its children
+   * are on screen: a COPC node's points are interleaved through the same volume as its children's,
+   * so as soon as a descendant is selected they sit at that finer spacing and drawing them any
+   * fatter buries the detail underneath. Potree reads the same value per point from its
+   * visible-nodes texture (`pointcloud.vs` `getLOD`); this is the per-node approximation.
+   */
+  nodeSpacing: number;
+  depth = 0;
+  private readonly _splats: HqSplatRenderer | null;
+  private _splatCommands: { depth: DrawCommandLike; attribute: DrawCommandLike } | null;
 
   constructor(
     renderData: NodeRenderData,
     boundingSphere: Cesium.BoundingSphere,
     style: PointStyle,
     onGpuInit?: (startedAt: number, endedAt: number) => void,
+    nodeSpacing = 0,
+    splats: HqSplatRenderer | null = null,
   ) {
     this._positions = renderData.positions;
     this._origin = renderData.origin;
@@ -112,11 +132,23 @@ export class PointCloudPrimitive {
     this._va = null;
     this._sp = null;
     this._onGpuInit = onGpuInit ?? null;
+    this.nodeSpacing = nodeSpacing;
+    this._splats = splats;
+    this._splatCommands = null;
+    splats?.add(this);
+  }
+
+  get boundingSphere(): Cesium.BoundingSphere {
+    return this._boundingSphere;
+  }
+
+  get pointCount(): number {
+    return this._pointCount;
   }
 
   // Called by PrimitiveCollection every frame.
   update(frameState: { context: unknown; commandList: unknown[] }): void {
-    if (!this.show || this._destroyed) return;
+    if (!this.show || this._destroyed || this._splats) return;
     if (!this._cmd) {
       // A GPU init failure (context loss, out of VRAM, ...) must not throw here:
       // that would abort Cesium's whole frame loop. Skip just this node instead.
@@ -129,7 +161,10 @@ export class PointCloudPrimitive {
         this._onGpuInit?.(startedAt, performance.now());
         this._onGpuInit = null;
       } catch (err) {
-        console.error('[PointCloudPrimitive] GPU initialization failed; excluding this node from rendering:', err);
+        console.error(
+          '[PointCloudPrimitive] GPU initialization failed; excluding this node from rendering:',
+          err,
+        );
         this._destroyed = true;
         return;
       }
@@ -165,84 +200,104 @@ export class PointCloudPrimitive {
   /** Node origin shifted `heightOffset` meters along the node's local "up". */
   private _modelMatrix(heightOffset: number): Cesium.Matrix4 {
     const origin = new Cesium.Cartesian3(this._origin[0], this._origin[1], this._origin[2]);
-    const shift = Cesium.Cartesian3.multiplyByScalar(this._up, heightOffset, new Cesium.Cartesian3());
+    const shift = Cesium.Cartesian3.multiplyByScalar(
+      this._up,
+      heightOffset,
+      new Cesium.Cartesian3(),
+    );
     return Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.add(origin, shift, origin));
   }
 
-  private _initGpu(context: unknown): void {
-    const mkVBuf = (arr: ArrayBufferView) =>
-      CesiumAny.Buffer.createVertexBuffer({
-        context,
-        typedArray: arr,
-        usage: CesiumAny.BufferUsage.STATIC_DRAW,
-      });
+  /**
+   * The two draw commands `HqSplatRenderer` issues for this node. Null when the GPU upload
+   * failed, in which case the node is excluded for good, as in `update()`.
+   */
+  splatCommands(
+    context: unknown,
+    renderer: HqSplatRenderer,
+  ): { depth: unknown; attribute: unknown } | null {
+    if (this._destroyed) return null;
 
+    if (!this._splatCommands) {
+      try {
+        const startedAt = performance.now();
+        this._va = this._createVertexArray(context);
+        this._onGpuInit?.(startedAt, performance.now());
+        this._onGpuInit = null;
+      } catch (err) {
+        console.error(
+          '[PointCloudPrimitive] GPU initialization failed; excluding this node from rendering:',
+          err,
+        );
+        this._destroyed = true;
+        return null;
+      }
+
+      const style = this._style;
+      const { depth, attribute } = renderer.shaderPrograms(context);
+      const shared = {
+        vertexArray: this._va,
+        primitiveType: Cesium.PrimitiveType.POINTS,
+        framebuffer: renderer.framebuffer,
+        boundingVolume: this._boundingSphere,
+        count: this._pointCount,
+        pass: CesiumAny.Pass.OPAQUE,
+        modelMatrix: this._modelMatrix(style.heightOffset),
+        owner: this,
+        uniformMap: {
+          u_pixelSize: () => style.pixelSize,
+          u_nodeSpacing: () => this.nodeSpacing,
+          u_colorMode: () => style.colorMode,
+          u_intensityRange: () => style.intensityRange,
+          u_classMask: () => style.classMask,
+          u_opacity: () => style.opacity,
+        },
+      };
+
+      this._splatCommands = {
+        depth: new CesiumAny.DrawCommand({
+          ...shared,
+          shaderProgram: depth,
+          renderState: renderer.depthRenderState,
+        }) as DrawCommandLike,
+        attribute: new CesiumAny.DrawCommand({
+          ...shared,
+          shaderProgram: attribute,
+          renderState: renderer.attributeRenderState,
+        }) as DrawCommandLike,
+      };
+      this._appliedHeightOffset = style.heightOffset;
+    }
+
+    const commands = this._splatCommands;
+    if (this._style.heightOffset !== this._appliedHeightOffset) {
+      commands.depth.modelMatrix = this._modelMatrix(this._style.heightOffset);
+      commands.attribute.modelMatrix = commands.depth.modelMatrix;
+      this._appliedHeightOffset = this._style.heightOffset;
+    }
+    // The renderer recreates its framebuffer on resize.
+    commands.depth.framebuffer = renderer.framebuffer;
+    commands.attribute.framebuffer = renderer.framebuffer;
+
+    return commands;
+  }
+
+  private _initGpu(context: unknown): void {
     let va: { destroy(): void } | null = null;
     let sp: { destroy(): void } | null = null;
     try {
-      va = new CesiumAny.VertexArray({
-        context,
-        attributes: [
-          {
-            index: 0, // position (node-relative offset)
-            vertexBuffer: mkVBuf(this._positions!),
-            componentsPerAttribute: 3,
-            componentDatatype: Cesium.ComponentDatatype.FLOAT,
-            offsetInBytes: 0,
-            strideInBytes: 12,
-          },
-          {
-            index: 1, // color
-            vertexBuffer: mkVBuf(this._colors!),
-            componentsPerAttribute: 4,
-            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
-            normalize: true,
-            offsetInBytes: 0,
-            strideInBytes: 4,
-          },
-          {
-            index: 2, // intensity
-            vertexBuffer: mkVBuf(this._intensities!),
-            componentsPerAttribute: 1,
-            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
-            normalize: true,
-            offsetInBytes: 0,
-            strideInBytes: 2,
-          },
-          {
-            index: 3, // classification
-            vertexBuffer: mkVBuf(this._classifications!),
-            componentsPerAttribute: 1,
-            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
-            normalize: true,
-            offsetInBytes: 0,
-            strideInBytes: 1,
-          },
-          {
-            index: 4, // elevation
-            vertexBuffer: mkVBuf(this._elevations!),
-            componentsPerAttribute: 1,
-            componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
-            normalize: true,
-            offsetInBytes: 0,
-            strideInBytes: 2,
-          },
-        ],
-      });
+      va = this._createVertexArray(context);
 
       const style = this._style;
 
       sp = CesiumAny.ShaderProgram.fromCache({
         context,
         vertexShaderSource,
-        fragmentShaderSource,
-        attributeLocations: {
-          position: 0,
-          color: 1,
-          intensity: 2,
-          classification: 3,
-          elevation: 4,
-        },
+        fragmentShaderSource: new CesiumAny.ShaderSource({
+          defines: ['LOG_DEPTH_READ_ONLY'],
+          sources: [fragmentShaderSource],
+        }),
+        attributeLocations: SPLAT_ATTRIBUTE_LOCATIONS,
       });
 
       this._va = va;
@@ -262,6 +317,7 @@ export class PointCloudPrimitive {
         modelMatrix: this._modelMatrix(this._style.heightOffset),
         uniformMap: {
           u_pixelSize: () => style.pixelSize,
+          u_nodeSpacing: () => this.nodeSpacing,
           u_colorMode: () => style.colorMode,
           u_intensityRange: () => style.intensityRange,
           u_classMask: () => style.classMask,
@@ -284,14 +340,74 @@ export class PointCloudPrimitive {
       this._destroyed = true;
       throw err;
     }
+  }
 
-    // CPU-side arrays are no longer needed once uploaded to the GPU. Every
-    // style change is a uniform update, so nothing here has to be re-read.
+  /** Uploads the node's arrays and drops the CPU copies; every later change is a uniform. */
+  private _createVertexArray(context: unknown): { destroy(): void } {
+    const mkVBuf = (arr: ArrayBufferView) =>
+      CesiumAny.Buffer.createVertexBuffer({
+        context,
+        typedArray: arr,
+        usage: CesiumAny.BufferUsage.STATIC_DRAW,
+      });
+
+    const va = new CesiumAny.VertexArray({
+      context,
+      attributes: [
+        {
+          index: 0, // position (node-relative offset)
+          vertexBuffer: mkVBuf(this._positions!),
+          componentsPerAttribute: 3,
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+          offsetInBytes: 0,
+          strideInBytes: 12,
+        },
+        {
+          index: 1, // color
+          vertexBuffer: mkVBuf(this._colors!),
+          componentsPerAttribute: 4,
+          componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
+          normalize: true,
+          offsetInBytes: 0,
+          strideInBytes: 4,
+        },
+        {
+          index: 2, // intensity
+          vertexBuffer: mkVBuf(this._intensities!),
+          componentsPerAttribute: 1,
+          componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
+          normalize: true,
+          offsetInBytes: 0,
+          strideInBytes: 2,
+        },
+        {
+          index: 3, // classification
+          vertexBuffer: mkVBuf(this._classifications!),
+          componentsPerAttribute: 1,
+          componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
+          normalize: true,
+          offsetInBytes: 0,
+          strideInBytes: 1,
+        },
+        {
+          index: 4, // elevation
+          vertexBuffer: mkVBuf(this._elevations!),
+          componentsPerAttribute: 1,
+          componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
+          normalize: true,
+          offsetInBytes: 0,
+          strideInBytes: 2,
+        },
+      ],
+    });
+
     this._positions = null;
     this._colors = null;
     this._intensities = null;
     this._classifications = null;
     this._elevations = null;
+
+    return va;
   }
 
   /** The shared style object this primitive's uniforms read through. */
@@ -309,6 +425,7 @@ export class PointCloudPrimitive {
       if (this._sp) this._sp.destroy();
       this._destroyed = true;
     }
+    this._splats?.remove(this);
     return Cesium.destroyObject(this);
   }
 }

@@ -11,6 +11,9 @@ import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
  */
 export type ColorMode = 'rgb' | 'intensity' | 'classification' | 'elevation';
 
+/** How a point's screen size is chosen. */
+export type PointSizeMode = 'fixed' | 'adaptive';
+
 /** Public options for CopcDataSource */
 export interface CopcDataSourceOptions {
   proj?: string;
@@ -51,6 +54,16 @@ export interface CopcDataSourceOptions {
    */
   maxPoints?: number;
   pixelSize?: number;
+  /**
+   * `'fixed'` (default) draws every point at `pixelSize` pixels regardless of
+   * distance. `'adaptive'` is Potree's ADAPTIVE mode: a point is drawn at the
+   * screen size its octree node's world-space spacing (the COPC info VLR's
+   * root `spacing`, halved per depth) covers at that point's own distance, so
+   * coarse levels draw fat points that hide the gaps they leave and every
+   * level shrinks as the camera closes in. `pixelSize` becomes a multiplier on
+   * that size, and the result is clamped to 1-50 pixels.
+   */
+  pointSizeMode?: PointSizeMode;
   sseThreshold?: number;
   /** Factor that converts the Z axis unit to meters. Auto-detected from the WKT when omitted. */
   zFactor?: number;
@@ -78,6 +91,11 @@ export interface CopcDataSourceOptions {
    * 0-65535 mapping would render most files nearly black.
    */
   intensityRange?: [number, number];
+  /**
+   * Draw the cloud with potree-style HQ splatting (see `HqSplatRenderer`)
+   * instead of plain points.
+   */
+  hqSplats?: boolean;
 }
 
 /** Result of auto-detecting a CRS from a WKT VLR */

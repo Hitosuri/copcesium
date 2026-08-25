@@ -26,6 +26,7 @@
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "coverage:badges": "istanbul-badges-readme",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "repository": {

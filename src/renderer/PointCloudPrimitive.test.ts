@@ -95,3 +95,27 @@ describe('PointCloudPrimitive GPU-init timing', () => {
     expect(onGpuInit).not.toHaveBeenCalled();
   });
 });
+
+describe('adaptive point size', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const nodeSpacingUniform = () => {
+    const options = vi.mocked(Cesium.DrawCommand as unknown as (o: unknown) => void).mock
+      .calls[0]![0] as {
+      uniformMap: { u_nodeSpacing: () => number };
+    };
+    return options.uniformMap.u_nodeSpacing();
+  };
+
+  it('feeds the node spacing through as a uniform', () => {
+    new PointCloudPrimitive(renderData, sphere, style, undefined, 0.35).update(frame());
+
+    expect(nodeSpacingUniform()).toBe(0.35);
+  });
+
+  it('reports no spacing when none is given, which selects the fixed-size path', () => {
+    new PointCloudPrimitive(renderData, sphere, style).update(frame());
+
+    expect(nodeSpacingUniform()).toBe(0);
+  });
+});

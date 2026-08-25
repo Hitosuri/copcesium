@@ -1,5 +1,6 @@
 import type * as Cesium from 'cesium';
 import { PointCloudPrimitive, type PointStyle } from '../renderer/PointCloudPrimitive';
+import type { HqSplatRenderer } from '../renderer/HqSplatRenderer';
 import type { NodeRenderData } from '../types';
 
 /**
@@ -19,6 +20,8 @@ export async function createNodePrimitive(
   boundingSphere: Cesium.BoundingSphere,
   style: PointStyle,
   onGpuInit?: (startedAt: number, endedAt: number) => void,
+  nodeSpacing = 0,
+  splats: HqSplatRenderer | null = null,
 ): Promise<PointCloudPrimitive> {
-  return new PointCloudPrimitive(renderData, boundingSphere, style, onGpuInit);
+  return new PointCloudPrimitive(renderData, boundingSphere, style, onGpuInit, nodeSpacing, splats);
 }
