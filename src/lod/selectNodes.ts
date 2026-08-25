@@ -1,3 +1,9 @@
+/**
+ * LoD stage. Walks the loaded octree on each (debounced) LoD pass, deciding
+ * which nodes are visible and worth their screen-space error given the
+ * current camera, and returns the set `CopcDataSource` should have loaded
+ * and rendered next.
+ */
 import * as Cesium from 'cesium';
 import type { Hierarchy } from 'copc';
 import { getChildKeys } from '../copc/node';
@@ -88,7 +94,7 @@ export interface SelectNodesOptions {
    * sphere. Pulled out as a callback rather than raw ingredients
    * (rootCenter/rootHalfSize/project/xyFactor) so a caller can memoize per
    * key instead of recomputing a proj4 transform for every node on every
-   * BFS pass.
+   * selection pass.
    */
   getSphere: (key: string) => Cesium.BoundingSphere;
   camera: Cesium.Camera;

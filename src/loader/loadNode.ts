@@ -6,9 +6,9 @@ import type { NodeRenderData } from '../types';
 /**
  * Turns a node's render-ready buffers into a GPU `PointCloudPrimitive`.
  *
- * This is a thin wrapper today, but it's declared `async` so the signature
- * already matches Day 3, when it will fetch `renderData` from a `WorkerPool`
- * instead of receiving it directly — callers won't need to change.
+ * A thin wrapper, kept `async` for a uniform call signature even though it
+ * does no awaiting itself — `CopcDataSource._loadNode` already resolves
+ * `renderData` from `WorkerPool` before calling this.
  *
  * `onGpuInit` fires once, on the first frame this node is actually drawn,
  * with the span the GPU buffer/shader creation took. Nothing here can time

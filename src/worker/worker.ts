@@ -1,3 +1,9 @@
+/**
+ * Decode stage, worker-thread side. Runs inside each `WorkerPool` worker:
+ * decompresses a node's LAZ chunk via `laz-perf` (WASM), reprojects points,
+ * and packs the result into the typed arrays `PointCloudPrimitive` uploads
+ * to the GPU.
+ */
 import { Copc } from 'copc';
 import type { View } from 'copc';
 // `laz-perf/lib/worker` (not the top-level `laz-perf`/`lib/web` entry) has

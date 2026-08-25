@@ -29,6 +29,13 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
+  "prettier": {
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "printWidth": 100,
+    "tabWidth": 2
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Jangmyun/copcesium.git"

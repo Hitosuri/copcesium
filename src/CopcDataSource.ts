@@ -1,3 +1,11 @@
+/**
+ * Orchestrator and public entry point. A standalone class (not a CesiumJS
+ * `DataSource` implementation) that takes a `Viewer` and hooks its own
+ * `scene.preRender`/`camera.moveEnd` listeners; owns the loaded hierarchy,
+ * node cache, and per-frame LoD walk, wiring together `hierarchy` (metadata),
+ * `RangeFetcher`/`WorkerPool` (fetch + decode), `selectNodes` (LoD), and
+ * `PointCloudPrimitive` (rendering) into one coherent stream.
+ */
 import * as Cesium from 'cesium';
 import proj4 from 'proj4';
 import { Copc, type Hierarchy } from 'copc';
@@ -119,7 +127,7 @@ function percentile(sorted: number[], fraction: number): number {
 }
 
 // Bounds `_sphereCache` independently of `maxCacheNodes`: every candidate the
-// BFS selectNodes() pass touches while walking the hierarchy gets a sphere
+// selectNodes() pass touches while walking the hierarchy gets a sphere
 // computed, not just currently-loaded/visible nodes, so this cache sees a much
 // larger working set per LoD pass than NodeCache does. Sized generously above
 // the default `maxCacheNodes` (150) to comfortably hold a pass's candidates
@@ -220,15 +228,15 @@ export class CopcDataSource {
       (_key, node) => this._destroyLoadedNode(node),
       options.maxCacheBytes,
     );
-    // Defaults to the worker pool's size, which keeps fetching from outrunning
-    // decoding the way it did before any cap existed (#86) — but is settable
-    // on its own, because the two stages saturate at different widths.
     this._counter = hierarchy.counter;
     this._pageGetter = createCountingGetter(url, this._counter);
     this._rangeFetcher = new RangeFetcher(
       url,
       undefined,
       undefined,
+      // Defaults to the worker pool's size, which keeps fetching from outrunning
+      // decoding the way it did before any cap existed (#86) — but is settable
+      // on its own, because the two stages saturate at different widths.
       options.maxConcurrentRequests ?? workerPool.concurrency,
       this._counter,
     );
@@ -375,8 +383,9 @@ export class CopcDataSource {
   }
 
   /** Cheap: re-tests the current selection's cached nodes against the live
-   *  frustum and toggles `show` — no BFS, no allocation, no loading. Catches
-   *  camera changes that happen between (throttled) `_updateLoD()` passes. */
+   *  frustum and toggles `show` — no octree walk, no allocation, no loading.
+   *  Catches camera changes that happen between (throttled) `_updateLoD()`
+   *  passes. */
   private _updateVisibility(): void {
     if (this._selectedKeys.size === 0) return;
     const cullingVolume = getCullingVolume(this._viewer.scene.camera);
@@ -394,7 +403,7 @@ export class CopcDataSource {
     if (changed) this._viewer.scene.requestRender();
   }
 
-  /** Expensive: BFS reselection, then reconciles the render set (`show`)
+  /** Expensive: full reselection via `selectNodes`, then reconciles the render set (`show`)
    *  against it and dispatches loads for anything newly selected but not yet
    *  cached. A node dropping out of the selection is hidden only once its
    *  replacement (children, on subdivision, or the parent, on merge) is
@@ -818,7 +827,6 @@ export class CopcDataSource {
     return Object.keys(this._nodes).length;
   }
 
-  /** Number of nodes currently retained in the LRU cache. */
   /** Records one stage's elapsed time, and emits a `performance.measure` so
    *  the same breakdown appears on DevTools' Performance timeline without the
    *  caller wiring anything up. Measured from timestamps rather than paired
@@ -878,6 +886,7 @@ export class CopcDataSource {
     };
   }
 
+  /** Number of nodes currently retained in the LRU cache. */
   get cacheSize(): number {
     return this._nodeCache.size;
   }

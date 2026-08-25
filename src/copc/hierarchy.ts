@@ -1,3 +1,9 @@
+/**
+ * Metadata stage. Fetches and parses a COPC file's header and octree
+ * hierarchy pages (not point data) via the `copc` library, tracking bytes
+ * transferred along the way for `CopcDataSource`'s stats. Feeds the node map
+ * that `selectNodes` walks and `loadNode`/`worker` later decode.
+ */
 import { Copc } from 'copc';
 import type { Hierarchy } from 'copc';
 import { getDepth } from './node';

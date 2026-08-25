@@ -9,6 +9,9 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v5
 
@@ -24,7 +27,18 @@ jobs:
 
       - run: npm run lint
 
-      - run: npm run coverage:badges -- --ci
+      - run: npm run coverage:badges
+
+      - name: Open PR for updated coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update coverage badge"
+          title: "chore: update coverage badge"
+          body: Automated update to the README coverage badge.
+          branch: ci/update-coverage-badge
+          delete-branch: true
+          add-paths: README.md
 
       - run: npm sbom --sbom-format cyclonedx > sbom.cdx.json
 

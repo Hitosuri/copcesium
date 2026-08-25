@@ -15,7 +15,8 @@ export function computeScreenSpaceError(
   const dz = boundingSphere.center.z - cameraPosition.z;
   const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-  // Camera inside (or touching) the sphere: always subdivide further.
+  // Camera at (or touching) the sphere's center: distance would blow up the
+  // division below, so short-circuit to "always subdivide further" instead.
   if (distance <= 1e-6) return Infinity;
 
   const k = viewportHeight / (2 * Math.tan(fovy / 2));
