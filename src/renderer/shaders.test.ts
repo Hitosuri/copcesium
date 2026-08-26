@@ -66,11 +66,16 @@ describe('vertexShaderSource', () => {
   });
 
   it('branches on the same colour mode numbers the TypeScript side sends', () => {
-    expect(vertexShaderSource).toContain(`u_colorMode == ${COLOR_MODE.intensity}`);
-    expect(vertexShaderSource).toContain(`u_colorMode == ${COLOR_MODE.classification}`);
-    expect(vertexShaderSource).toContain(`u_colorMode == ${COLOR_MODE.elevation}`);
+    expect(vertexShaderSource).toContain(`#define COLOR_MODE_INTENSITY ${COLOR_MODE.intensity}`);
+    expect(vertexShaderSource).toContain(
+      `#define COLOR_MODE_CLASSIFICATION ${COLOR_MODE.classification}`,
+    );
+    expect(vertexShaderSource).toContain(`#define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}`);
+    expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_INTENSITY');
+    expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_CLASSIFICATION');
+    expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_ELEVATION');
     // 'rgb' is the else branch, so it must not have a comparison of its own.
-    expect(vertexShaderSource).not.toContain(`u_colorMode == ${COLOR_MODE.rgb}`);
+    expect(vertexShaderSource).not.toContain('COLOR_MODE_RGB');
   });
 
   it('declares the attributes and uniforms the primitive binds', () => {

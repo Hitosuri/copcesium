@@ -97,6 +97,9 @@ export class HqSplatRenderer {
   /** What the last frame drew. */
   readonly stats = { nodes: 0, points: 0, byDepth: [] as { nodes: number; points: number }[] };
 
+  /** Eye-dome lighting (potree's defaults). `strength` 0 turns it off. */
+  readonly edl = { strength: 0, radius: 1.4 };
+
   private readonly _nodes = new Set<PointCloudPrimitive>();
   private _framebuffer: Destroyable | null = null;
   private _color: Destroyable | null = null;
@@ -272,6 +275,8 @@ export class HqSplatRenderer {
       uniformMap: {
         u_splatColor: () => this._color,
         u_splatDepth: () => this._depth,
+        u_edlStrength: () => this.edl.strength,
+        u_edlRadius: () => this.edl.radius,
       },
       owner: this,
     });
