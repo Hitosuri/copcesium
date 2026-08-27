@@ -11,6 +11,7 @@ import * as Cesium from 'cesium';
 import { vertexShaderSource, fragmentShaderSource } from './shaders';
 import { SPLAT_ATTRIBUTE_LOCATIONS, type HqSplatRenderer } from './HqSplatRenderer';
 import type { NodeRenderData } from '../types';
+import type { VisibleNodesTexture } from './visibleNodes';
 
 /**
  * Style state shared live by every loaded primitive. Mutated in place by
@@ -90,6 +91,8 @@ export class PointCloudPrimitive {
   private _intensities: Uint16Array | null;
   private _classifications: Uint8Array | null;
   private _elevations: Uint16Array | null;
+  private _localPositions: Uint16Array | null;
+  private _hasLocalPositions = false;
   private _pointCount: number;
   private _boundingSphere: Cesium.BoundingSphere;
   private _style: PointStyle;
@@ -108,6 +111,10 @@ export class PointCloudPrimitive {
    * visible-nodes texture (`pointcloud.vs` `getLOD`); this is the per-node approximation.
    */
   nodeSpacing: number;
+  /** This node's texel in `visibleNodes`; -1 sizes every point at `nodeSpacing`. */
+  vnStart = -1;
+  /** Takes precedence over the splat renderer's texture. */
+  visibleNodes: VisibleNodesTexture | null = null;
   depth = 0;
   private readonly _splats: HqSplatRenderer | null;
   private _splatCommands: { depth: DrawCommandLike; attribute: DrawCommandLike } | null;
@@ -132,6 +139,7 @@ export class PointCloudPrimitive {
     this._intensities = renderData.intensities;
     this._classifications = renderData.classifications;
     this._elevations = renderData.elevations;
+    this._localPositions = renderData.localPositions ?? null;
     this._pointCount = renderData.pointCount;
     this._boundingSphere = boundingSphere;
     this._style = style;
@@ -253,14 +261,7 @@ export class PointCloudPrimitive {
         pass: CesiumAny.Pass.OPAQUE,
         modelMatrix: this._modelMatrix(style.heightOffset),
         owner: this,
-        uniformMap: {
-          u_pixelSize: () => style.pixelSize,
-          u_nodeSpacing: () => this.nodeSpacing,
-          u_colorMode: () => style.colorMode,
-          u_intensityRange: () => style.intensityRange,
-          u_classMask: () => style.classMask,
-          u_opacity: () => style.opacity,
-        },
+        uniformMap: this._uniformMap(context),
       };
 
       this._splatCommands = {
@@ -324,14 +325,7 @@ export class PointCloudPrimitive {
         // worker subtracted off; the vertex shader reconstructs absolute
         // ECEF from this plus the node-relative offsets.
         modelMatrix: this._modelMatrix(this._style.heightOffset),
-        uniformMap: {
-          u_pixelSize: () => style.pixelSize,
-          u_nodeSpacing: () => this.nodeSpacing,
-          u_colorMode: () => style.colorMode,
-          u_intensityRange: () => style.intensityRange,
-          u_classMask: () => style.classMask,
-          u_opacity: () => style.opacity,
-        },
+        uniformMap: this._uniformMap(context),
       }) as DrawCommandLike;
       this._appliedHeightOffset = this._style.heightOffset;
       this._appliedOpaque = opaque;
@@ -349,6 +343,22 @@ export class PointCloudPrimitive {
       this._destroyed = true;
       throw err;
     }
+  }
+
+  private _uniformMap(context: unknown): Record<string, () => unknown> {
+    const style = this._style;
+    const { defaultTexture } = context as { defaultTexture: unknown };
+    return {
+      u_pixelSize: () => style.pixelSize,
+      u_nodeSpacing: () => this.nodeSpacing,
+      u_visibleNodes: () =>
+        (this.visibleNodes ?? this._splats?.visibleNodes)?.get(context) ?? defaultTexture,
+      u_vnStart: () => (this._hasLocalPositions ? this.vnStart : -1),
+      u_colorMode: () => style.colorMode,
+      u_intensityRange: () => style.intensityRange,
+      u_classMask: () => style.classMask,
+      u_opacity: () => style.opacity,
+    };
   }
 
   /** Uploads the node's arrays and drops the CPU copies; every later change is a uniform. */
@@ -407,14 +417,25 @@ export class PointCloudPrimitive {
           offsetInBytes: 0,
           strideInBytes: 2,
         },
+        {
+          index: 5, // localPos
+          vertexBuffer: mkVBuf(this._localPositions ?? new Uint16Array(this._pointCount * 3)),
+          componentsPerAttribute: 3,
+          componentDatatype: Cesium.ComponentDatatype.UNSIGNED_SHORT,
+          normalize: true,
+          offsetInBytes: 0,
+          strideInBytes: 6,
+        },
       ],
     });
 
+    this._hasLocalPositions = this._localPositions !== null;
     this._positions = null;
     this._colors = null;
     this._intensities = null;
     this._classifications = null;
     this._elevations = null;
+    this._localPositions = null;
 
     return va;
   }

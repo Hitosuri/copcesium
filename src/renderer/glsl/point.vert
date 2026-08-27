@@ -3,10 +3,17 @@ in vec4 color;
 in float intensity;       // UNSIGNED_SHORT, normalized -> raw / 65535
 in float classification;  // UNSIGNED_BYTE, normalized  -> code / 255
 in float elevation;       // UNSIGNED_SHORT, normalized -> already 0..1 over the file's Z range
+in vec3 localPos;         // UNSIGNED_SHORT x3, normalized -> 0..1 inside this node's cube
 
 uniform float u_pixelSize;
 // This node's world-space point spacing in meters (root spacing / 2^depth).
 uniform float u_nodeSpacing;
+// potree's visible-nodes texture (pointcloud.vs getLOD): one texel per drawn
+// node in level order, R = child mask, G*256+B = offset to the first drawn
+// child. u_vnStart is this node's texel, or -1 to size the whole node at
+// u_nodeSpacing.
+uniform sampler2D u_visibleNodes;
+uniform float u_vnStart;
 uniform int u_colorMode;
 uniform vec2 u_intensityRange;  // raw LAS units, mapped to the ramp's 0..1
 uniform ivec4 u_classMask[2];   // 256-bit allow-list, one bit per classification code
@@ -31,6 +38,29 @@ bool classAllowed(int c) {
   int word = c >> 5;
   int bits = u_classMask[word >> 2][word & 3];
   return ((bits >> (c & 31)) & 1) != 0;
+}
+
+// Levels below this node at which a drawn descendant still contains this
+// point: walk the visible-nodes texture down through the point's own octants
+// until the child there is not drawn.
+int visibleLevelsBelow() {
+  int texel = int(u_vnStart);
+  int below = 0;
+  for (int i = 0; i < VISIBLE_NODES_MAX_WALK; i++) {
+    ivec3 cell = ivec3(localPos * exp2(float(i + 1))) & 1;
+    int octant = cell.x * 4 + cell.y * 2 + cell.z;
+    ivec4 value = ivec4(texelFetch(u_visibleNodes, ivec2(texel, 0), 0) * 255.0 + 0.5);
+    int mask = value.r;
+    if ((mask & (1 << octant)) == 0) break;
+    int before = mask & ((1 << octant) - 1);
+    // popcount of the lower bits: drawn siblings before this octant
+    before = before - ((before >> 1) & 0x55);
+    before = (before & 0x33) + ((before >> 2) & 0x33);
+    before = (before + (before >> 4)) & 0x0F;
+    texel += value.g * 256 + value.b + before;
+    below++;
+  }
+  return below;
 }
 
 void main() {
@@ -72,10 +102,12 @@ void main() {
   float pixelsPerMetre = 0.5 * czm_viewport.w * czm_projection[1][1];
 
   if (u_nodeSpacing > 0.0) {
+    float spacing = u_nodeSpacing;
+    if (u_vnStart >= 0.0) spacing /= exp2(float(visibleLevelsBelow()));
     // 1.7 and the [2, 50] clamp are potree's own ADAPTIVE constants
     // (pointcloud.vs getPointSize: r = uOctreeSpacing * 1.7, minSize/maxSize).
     gl_PointSize = clamp(
-      u_nodeSpacing * 1.7 * u_pixelSize * pixelsPerMetre / eyeDistance,
+      spacing * 1.7 * u_pixelSize * pixelsPerMetre / eyeDistance,
       2.0,
       50.0
     );

@@ -3,6 +3,7 @@ import { CLASSIFICATION_COLORS, DEFAULT_CLASS_COLOR } from '../style/classificat
 import pointVert from './glsl/point.vert?raw';
 import pointFrag from './glsl/point.frag?raw';
 import compositeFrag from './glsl/composite.frag?raw';
+import { VISIBLE_NODES_MAX_WALK } from './visibleNodes';
 
 /** Colour mode as the shader sees it. Kept in sync with `ColorMode` in types.ts. */
 export const COLOR_MODE = {
@@ -54,6 +55,7 @@ const vertexPrelude = `
 #define COLOR_MODE_INTENSITY ${COLOR_MODE.intensity}
 #define COLOR_MODE_CLASSIFICATION ${COLOR_MODE.classification}
 #define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}
+#define VISIBLE_NODES_MAX_WALK ${VISIBLE_NODES_MAX_WALK}
 
 vec3 classificationColor(int c) {
 ${classificationBranches}
@@ -61,6 +63,6 @@ ${classificationBranches}
 }
 `;
 
-export const vertexShaderSource = vertexPrelude + pointVert;
+export const vertexShaderSource: string = vertexPrelude + pointVert;
 export const fragmentShaderSource = pointFrag;
 export const compositeFragmentShaderSource = compositeFrag;

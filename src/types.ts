@@ -134,6 +134,11 @@ export interface NodeRenderData {
    * float. Zero throughout when the header reports a flat dataset.
    */
   elevations: Uint16Array;
+  /**
+   * Point position normalized 0..65535 inside its node's cube, 3 per point. Enables per-point
+   * adaptive sizing through the visible-nodes texture (`HqSplatRenderer.visibleNodes`).
+   */
+  localPositions?: Uint16Array;
   pointCount: number;
   /** Highest raw `Intensity` in this node; feeds the auto `intensityRange`. */
   maxIntensity: number;

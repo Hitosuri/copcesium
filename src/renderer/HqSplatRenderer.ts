@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import { compositeFragmentShaderSource, fragmentShaderSource, vertexShaderSource } from './shaders';
 import type { PointCloudPrimitive } from './PointCloudPrimitive';
+import { VisibleNodesTexture } from './visibleNodes';
 
 // Cesium's renderer internals have no public type declarations; only the
 // members this file uses are declared here.
@@ -60,6 +61,7 @@ export const SPLAT_ATTRIBUTE_LOCATIONS = {
   intensity: 2,
   classification: 3,
   elevation: 4,
+  localPos: 5,
 };
 
 /**
@@ -101,6 +103,8 @@ export class HqSplatRenderer {
   readonly edl = { strength: 0, radius: 1.4 };
 
   show = true;
+
+  readonly visibleNodes = new VisibleNodesTexture();
 
   private readonly _nodes = new Set<PointCloudPrimitive>();
   private _framebuffer: Destroyable | null = null;
@@ -301,6 +305,7 @@ export class HqSplatRenderer {
     if (this._destroyed) return;
     this._destroyed = true;
     this._destroyTargets();
+    this.visibleNodes.destroy();
     for (const sp of this.depthShaderProgram.values()) sp.destroy();
     for (const sp of this.attributeShaderProgram.values()) sp.destroy();
     this._nodes.clear();
