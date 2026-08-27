@@ -353,6 +353,11 @@ export class CopcDataSource {
       this._project,
       this._options.xyFactor,
     );
+    if (this._style.heightOffset !== 0) {
+      const up = Cesium.Cartesian3.normalize(sphere.center, new Cesium.Cartesian3());
+      Cesium.Cartesian3.multiplyByScalar(up, this._style.heightOffset, up);
+      Cesium.Cartesian3.add(sphere.center, up, sphere.center);
+    }
     this._sphereCache.set(key, sphere);
     if (this._sphereCache.size > MAX_SPHERE_CACHE_SIZE) {
       // Iterates in insertion (= least-recently-used-first) order.
@@ -802,7 +807,9 @@ export class CopcDataSource {
     return this._style.heightOffset;
   }
   set heightOffset(value: number) {
+    if (value === this._style.heightOffset) return;
     this._style.heightOffset = value;
+    this._sphereCache.clear();
     this._viewer.scene.requestRender();
   }
 
@@ -893,6 +900,10 @@ export class CopcDataSource {
 
   get splats(): HqSplatRenderer | null {
     return this._splats;
+  }
+
+  get boundingSphere(): Cesium.BoundingSphere {
+    return this._getSphere('0-0-0-0');
   }
 
   destroy(): void {

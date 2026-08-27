@@ -100,6 +100,8 @@ export class HqSplatRenderer {
   /** Eye-dome lighting (potree's defaults). `strength` 0 turns it off. */
   readonly edl = { strength: 0, radius: 1.4 };
 
+  show = true;
+
   private readonly _nodes = new Set<PointCloudPrimitive>();
   private _framebuffer: Destroyable | null = null;
   private _color: Destroyable | null = null;
@@ -160,7 +162,7 @@ export class HqSplatRenderer {
 
   // Called by PrimitiveCollection every frame.
   update(frameState: SplatFrameState): void {
-    if (this._destroyed || !frameState.passes.render) return;
+    if (this._destroyed || !this.show || !frameState.passes.render) return;
 
     const context = frameState.context as Context;
     const shown: PointCloudPrimitive[] = [];
