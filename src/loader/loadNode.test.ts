@@ -24,6 +24,8 @@ function makeStyle(pixelSize = 2): PointStyle {
     intensityRange: new Cesium.Cartesian2(0, 1),
     classMask: buildClassMask(undefined),
     heightOffset: 0,
+    eastOffset: 0,
+    northOffset: 0,
     opacity: 1,
   };
 }

@@ -37,6 +37,27 @@ export interface PointStyle {
    * doesn't need touching.
    */
   heightOffset: number;
+  /** Meters along local east / north, same mechanism as `heightOffset`. */
+  eastOffset: number;
+  northOffset: number;
+}
+
+/** The ENU shift `style` puts on a point (or sphere) centred at `center`, as a world vector. */
+export function offsetShift(
+  center: Cesium.Cartesian3,
+  style: Pick<PointStyle, 'eastOffset' | 'northOffset' | 'heightOffset'>,
+  result = new Cesium.Cartesian3(),
+): Cesium.Cartesian3 {
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+  return Cesium.Matrix4.multiplyByPointAsVector(
+    enu,
+    new Cesium.Cartesian3(style.eastOffset, style.northOffset, style.heightOffset),
+    result,
+  );
+}
+
+function offsetKey(style: PointStyle): string {
+  return `${style.eastOffset},${style.northOffset},${style.heightOffset}`;
 }
 
 // Cesium's low-level GPU API (Buffer/VertexArray/ShaderProgram/DrawCommand) has no
@@ -84,8 +105,7 @@ interface DrawCommandLike {
 export class PointCloudPrimitive {
   private _positions: Float32Array | null;
   private _origin: [number, number, number];
-  private _up: Cesium.Cartesian3;
-  private _appliedHeightOffset: number;
+  private _appliedOffset: string;
   private _appliedOpaque: boolean;
   private _colors: Uint8Array | null;
   private _intensities: Uint16Array | null;
@@ -129,11 +149,7 @@ export class PointCloudPrimitive {
   ) {
     this._positions = renderData.positions;
     this._origin = renderData.origin;
-    this._up = Cesium.Cartesian3.normalize(
-      new Cesium.Cartesian3(renderData.origin[0], renderData.origin[1], renderData.origin[2]),
-      new Cesium.Cartesian3(),
-    );
-    this._appliedHeightOffset = 0;
+    this._appliedOffset = '';
     this._appliedOpaque = true;
     this._colors = renderData.colors;
     this._intensities = renderData.intensities;
@@ -188,9 +204,9 @@ export class PointCloudPrimitive {
     } else {
       // Cheap enough to compare every frame; the underlying rebuilds only
       // happen on the frames where the relevant style field actually changed.
-      if (this._style.heightOffset !== this._appliedHeightOffset) {
-        this._cmd.modelMatrix = this._modelMatrix(this._style.heightOffset);
-        this._appliedHeightOffset = this._style.heightOffset;
+      if (offsetKey(this._style) !== this._appliedOffset) {
+        this._cmd.modelMatrix = this._modelMatrix();
+        this._appliedOffset = offsetKey(this._style);
       }
       const opaque = this._style.opacity >= 1;
       if (opaque !== this._appliedOpaque) {
@@ -214,14 +230,10 @@ export class PointCloudPrimitive {
         });
   }
 
-  /** Node origin shifted `heightOffset` meters along the node's local "up". */
-  private _modelMatrix(heightOffset: number): Cesium.Matrix4 {
+  /** Node origin shifted by the style's ENU offsets. */
+  private _modelMatrix(): Cesium.Matrix4 {
     const origin = new Cesium.Cartesian3(this._origin[0], this._origin[1], this._origin[2]);
-    const shift = Cesium.Cartesian3.multiplyByScalar(
-      this._up,
-      heightOffset,
-      new Cesium.Cartesian3(),
-    );
+    const shift = offsetShift(origin, this._style);
     return Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.add(origin, shift, origin));
   }
 
@@ -259,7 +271,7 @@ export class PointCloudPrimitive {
         boundingVolume: this._boundingSphere,
         count: this._pointCount,
         pass: CesiumAny.Pass.OPAQUE,
-        modelMatrix: this._modelMatrix(style.heightOffset),
+        modelMatrix: this._modelMatrix(),
         owner: this,
         uniformMap: this._uniformMap(context),
       };
@@ -276,14 +288,14 @@ export class PointCloudPrimitive {
           renderState: renderer.attributeRenderState,
         }) as DrawCommandLike,
       };
-      this._appliedHeightOffset = style.heightOffset;
+      this._appliedOffset = offsetKey(style);
     }
 
     const commands = this._splatCommands;
-    if (this._style.heightOffset !== this._appliedHeightOffset) {
-      commands.depth.modelMatrix = this._modelMatrix(this._style.heightOffset);
+    if (offsetKey(this._style) !== this._appliedOffset) {
+      commands.depth.modelMatrix = this._modelMatrix();
       commands.attribute.modelMatrix = commands.depth.modelMatrix;
-      this._appliedHeightOffset = this._style.heightOffset;
+      this._appliedOffset = offsetKey(this._style);
     }
     // The renderer recreates its framebuffer on resize.
     commands.depth.framebuffer = renderer.framebuffer;
@@ -324,10 +336,10 @@ export class PointCloudPrimitive {
         // Carries the node origin (shifted by the live heightOffset) the
         // worker subtracted off; the vertex shader reconstructs absolute
         // ECEF from this plus the node-relative offsets.
-        modelMatrix: this._modelMatrix(this._style.heightOffset),
+        modelMatrix: this._modelMatrix(),
         uniformMap: this._uniformMap(context),
       }) as DrawCommandLike;
-      this._appliedHeightOffset = this._style.heightOffset;
+      this._appliedOffset = offsetKey(this._style);
       this._appliedOpaque = opaque;
     } catch (err) {
       try {

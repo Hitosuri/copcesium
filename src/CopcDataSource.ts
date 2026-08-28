@@ -33,7 +33,7 @@ import {
 import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
-import type { PointStyle } from './renderer/PointCloudPrimitive';
+import { offsetShift, type PointStyle } from './renderer/PointCloudPrimitive';
 import { COLOR_MODE, buildClassMask } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
@@ -219,6 +219,8 @@ export class CopcDataSource {
       ),
       classMask: buildClassMask(options.classificationFilter),
       heightOffset: 0,
+      eastOffset: 0,
+      northOffset: 0,
       opacity: validateOpacity(options.opacity),
     };
     this._autoIntensityRange = options.intensityRange === undefined;
@@ -353,11 +355,7 @@ export class CopcDataSource {
       this._project,
       this._options.xyFactor,
     );
-    if (this._style.heightOffset !== 0) {
-      const up = Cesium.Cartesian3.normalize(sphere.center, new Cesium.Cartesian3());
-      Cesium.Cartesian3.multiplyByScalar(up, this._style.heightOffset, up);
-      Cesium.Cartesian3.add(sphere.center, up, sphere.center);
-    }
+    Cesium.Cartesian3.add(sphere.center, offsetShift(sphere.center, this._style), sphere.center);
     this._sphereCache.set(key, sphere);
     if (this._sphereCache.size > MAX_SPHERE_CACHE_SIZE) {
       // Iterates in insertion (= least-recently-used-first) order.
@@ -807,8 +805,26 @@ export class CopcDataSource {
     return this._style.heightOffset;
   }
   set heightOffset(value: number) {
-    if (value === this._style.heightOffset) return;
-    this._style.heightOffset = value;
+    this._setOffset('heightOffset', value);
+  }
+
+  /** Horizontal counterparts of `heightOffset`, meters along local east / north. */
+  get eastOffset(): number {
+    return this._style.eastOffset;
+  }
+  set eastOffset(value: number) {
+    this._setOffset('eastOffset', value);
+  }
+  get northOffset(): number {
+    return this._style.northOffset;
+  }
+  set northOffset(value: number) {
+    this._setOffset('northOffset', value);
+  }
+
+  private _setOffset(field: 'eastOffset' | 'northOffset' | 'heightOffset', value: number): void {
+    if (value === this._style[field]) return;
+    this._style[field] = value;
     this._sphereCache.clear();
     this._viewer.scene.requestRender();
   }

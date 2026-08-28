@@ -49,6 +49,8 @@ const style = {
   classMask: [new Cesium.Cartesian4(-1, -1, -1, -1), new Cesium.Cartesian4(-1, -1, -1, -1)],
   opacity: 1,
   heightOffset: 0,
+  eastOffset: 0,
+  northOffset: 0,
 };
 
 const sphere = new Cesium.BoundingSphere(new Cesium.Cartesian3(6378137, 0, 0), 10);
