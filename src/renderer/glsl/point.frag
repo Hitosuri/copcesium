@@ -7,12 +7,15 @@
 // unrecognized and produces an unlocated extra output instead. So: reference
 // out_FragColor, but don't declare it.
 in vec4 v_color;
+in float v_frontDepth;
 void main() {
   vec2 uv = 2.0 * gl_PointCoord - 1.0;
   float d2 = dot(uv, uv);
   if (d2 > 1.0) discard;
 
-#ifdef HQ_WEIGHTED
+#if defined(HQ_DEPTH_PASS)
+  out_FragColor = czm_packDepth(v_frontDepth);
+#elif defined(HQ_WEIGHTED)
   // potree's weighted_splats: premultiplied by a radial falloff, summed by
   // additive blending, divided back out by the composite pass.
   float weight = pow(1.0 - sqrt(d2), 1.5);

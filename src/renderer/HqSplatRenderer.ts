@@ -8,7 +8,7 @@ import { VisibleNodesTexture } from './visibleNodes';
 interface CesiumInternal {
   ClearCommand: new (opts: Record<string, unknown>) => Command;
   Framebuffer: new (opts: Record<string, unknown>) => Destroyable;
-  Pass: { OPAQUE: unknown };
+  Pass: { CESIUM_3D_TILE: unknown };
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
   Sampler: new (opts: Record<string, unknown>) => unknown;
   ShaderProgram: {
@@ -70,6 +70,10 @@ export const SPLAT_ATTRIBUTE_LOCATIONS = {
  * radii, then an additive pass that depth-tests against it and accumulates falloff-weighted
  * colour - and a viewport quad divides the sum back out into the scene, carrying the depth along.
  *
+ * The depth pass also writes each splat's un-pushed depth as colour: the scene depth the composite
+ * emits comes from there, so `scene.pickPosition` and depth-tested geometry land on the visible
+ * surface instead of two radii behind it.
+ *
  * Meant for `scene.logarithmicDepthBuffer = true` (the default), which is a single depth frustum.
  * Without it Cesium splits the scene into depth slabs and the pushed-back splats straddle the
  * seams.
@@ -80,7 +84,6 @@ export class HqSplatRenderer {
   readonly depthRenderState = CesiumAny.RenderState.fromCache({
     depthTest: { enabled: true },
     depthMask: true,
-    colorMask: { red: false, green: false, blue: false, alpha: false },
   });
   readonly attributeRenderState = CesiumAny.RenderState.fromCache({
     depthTest: { enabled: true },
@@ -108,16 +111,23 @@ export class HqSplatRenderer {
 
   private readonly _nodes = new Set<PointCloudPrimitive>();
   private _framebuffer: Destroyable | null = null;
+  private _depthFramebuffer: Destroyable | null = null;
   private _color: Destroyable | null = null;
+  private _frontDepth: Destroyable | null = null;
   private _depth: Destroyable | null = null;
   private _width = 0;
   private _height = 0;
   private _clear: Command | null = null;
+  private _clearDepth: Command | null = null;
   private _composite: Command | null = null;
   private _destroyed = false;
 
   get framebuffer(): unknown {
     return this._framebuffer;
+  }
+
+  get depthFramebuffer(): unknown {
+    return this._depthFramebuffer;
   }
 
   add(node: PointCloudPrimitive): void {
@@ -140,7 +150,7 @@ export class HqSplatRenderer {
           sources: [vertexShaderSource],
         }),
         fragmentShaderSource: new CesiumAny.ShaderSource({
-          defines: ['LOG_DEPTH_READ_ONLY'],
+          defines: ['HQ_DEPTH_PASS', 'LOG_DEPTH_READ_ONLY'],
           sources: [fragmentShaderSource],
         }),
         attributeLocations: SPLAT_ATTRIBUTE_LOCATIONS,
@@ -203,10 +213,12 @@ export class HqSplatRenderer {
 
     const bounds = Cesium.BoundingSphere.fromBoundingSpheres(spheres);
     this._clear!.boundingVolume = bounds;
+    this._clearDepth!.boundingVolume = bounds;
     this._composite!.boundingVolume = bounds;
 
     frameState.commandList.push(
       this._clear,
+      this._clearDepth,
       ...depthCommands,
       ...attributeCommands,
       this._composite,
@@ -251,9 +263,25 @@ export class HqSplatRenderer {
       pixelDatatype: Cesium.PixelDatatype.UNSIGNED_INT,
       sampler,
     });
+    // czm_packDepth spreads the depth over four bytes, so this stays RGBA8 on
+    // every context instead of needing a renderable float target.
+    this._frontDepth = new CesiumAny.Texture({
+      context,
+      width,
+      height,
+      pixelFormat: Cesium.PixelFormat.RGBA,
+      pixelDatatype: Cesium.PixelDatatype.UNSIGNED_BYTE,
+      sampler,
+    });
     this._framebuffer = new CesiumAny.Framebuffer({
       context,
       colorTextures: [this._color],
+      depthTexture: this._depth,
+      destroyAttachments: false,
+    });
+    this._depthFramebuffer = new CesiumAny.Framebuffer({
+      context,
+      colorTextures: [this._frontDepth],
       depthTexture: this._depth,
       destroyAttachments: false,
     });
@@ -262,7 +290,14 @@ export class HqSplatRenderer {
       color: new Cesium.Color(0, 0, 0, 0),
       depth: 1,
       framebuffer: this._framebuffer,
-      pass: CesiumAny.Pass.OPAQUE,
+      pass: CesiumAny.Pass.CESIUM_3D_TILE,
+      owner: this,
+    });
+    this._clearDepth = new CesiumAny.ClearCommand({
+      color: new Cesium.Color(1, 1, 1, 1),
+      depth: 1,
+      framebuffer: this._depthFramebuffer,
+      pass: CesiumAny.Pass.CESIUM_3D_TILE,
       owner: this,
     });
 
@@ -281,20 +316,25 @@ export class HqSplatRenderer {
       uniformMap: {
         u_splatColor: () => this._color,
         u_splatDepth: () => this._depth,
+        u_splatFrontDepth: () => this._frontDepth,
         u_edlStrength: () => this.edl.strength,
         u_edlRadius: () => this.edl.radius,
       },
       owner: this,
     });
-    this._composite.pass = CesiumAny.Pass.OPAQUE;
+    // Same pass as Cesium3DTileset: it runs before OPAQUE and feeds globe depth, so
+    // entity depthFailMaterial, clampToGround and pickPosition see the cloud like a mesh.
+    this._composite.pass = CesiumAny.Pass.CESIUM_3D_TILE;
   }
 
   private _destroyTargets(): void {
     this._framebuffer?.destroy();
+    this._depthFramebuffer?.destroy();
     this._color?.destroy();
+    this._frontDepth?.destroy();
     this._depth?.destroy();
-    this._framebuffer = this._color = this._depth = null;
-    this._clear = this._composite = null;
+    this._framebuffer = this._depthFramebuffer = this._color = this._frontDepth = this._depth = null;
+    this._clear = this._clearDepth = this._composite = null;
   }
 
   isDestroyed(): boolean {

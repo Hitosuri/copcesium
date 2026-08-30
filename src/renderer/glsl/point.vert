@@ -20,6 +20,7 @@ uniform ivec4 u_classMask[2];   // 256-bit allow-list, one bit per classificatio
 uniform float u_opacity;
 
 out vec4 v_color;
+out float v_frontDepth;
 
 // classificationColor(int) and the COLOR_MODE_* defines are generated in shaders.ts.
 
@@ -116,6 +117,7 @@ void main() {
   }
 
 #ifdef HQ_DEPTH_PASS
+  v_frontDepth = log2((gl_Position.w - czm_currentFrustum.x) + 1.0) * czm_oneOverLog2FarDepthFromNearPlusOne;
   // potree's hq_depth_pass: push the depth back by two splat radii so the
   // attribute pass, depth-testing against it, blends every splat within that
   // band instead of only the frontmost one.

@@ -1,5 +1,6 @@
 uniform sampler2D u_splatColor;
 uniform sampler2D u_splatDepth;
+uniform sampler2D u_splatFrontDepth;
 // Eye-dome lighting, potree's normalize_and_edl.fs: radius in pixels,
 // strength 0 disables.
 uniform float u_edlStrength;
@@ -39,5 +40,5 @@ void main() {
   }
 
   out_FragColor = vec4(rgb, 1.0);
-  gl_FragDepth = depth;
+  gl_FragDepth = czm_unpackDepth(texture(u_splatFrontDepth, v_textureCoordinates));
 }

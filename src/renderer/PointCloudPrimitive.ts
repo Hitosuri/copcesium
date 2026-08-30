@@ -83,7 +83,7 @@ interface CesiumInternal {
   ShaderSource: new (opts: { defines: string[]; sources: string[] }) => unknown;
   DrawCommand: new (opts: Record<string, unknown>) => unknown;
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
-  Pass: { OPAQUE: unknown; TRANSLUCENT: unknown };
+  Pass: { OPAQUE: unknown; TRANSLUCENT: unknown; CESIUM_3D_TILE: unknown };
   BlendingState: { ALPHA_BLEND: unknown };
 }
 const CesiumAny = Cesium as unknown as CesiumInternal;
@@ -267,10 +267,9 @@ export class PointCloudPrimitive {
       const shared = {
         vertexArray: this._va,
         primitiveType: Cesium.PrimitiveType.POINTS,
-        framebuffer: renderer.framebuffer,
         boundingVolume: this._boundingSphere,
         count: this._pointCount,
-        pass: CesiumAny.Pass.OPAQUE,
+        pass: CesiumAny.Pass.CESIUM_3D_TILE,
         modelMatrix: this._modelMatrix(),
         owner: this,
         uniformMap: this._uniformMap(context),
@@ -297,8 +296,8 @@ export class PointCloudPrimitive {
       commands.attribute.modelMatrix = commands.depth.modelMatrix;
       this._appliedOffset = offsetKey(this._style);
     }
-    // The renderer recreates its framebuffer on resize.
-    commands.depth.framebuffer = renderer.framebuffer;
+    // The renderer recreates its framebuffers on resize.
+    commands.depth.framebuffer = renderer.depthFramebuffer;
     commands.attribute.framebuffer = renderer.framebuffer;
 
     return commands;
