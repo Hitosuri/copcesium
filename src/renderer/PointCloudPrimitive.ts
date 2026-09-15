@@ -21,6 +21,8 @@ import type { VisibleNodesTexture } from './visibleNodes';
  */
 export interface PointStyle {
   pixelSize: number;
+  /** One of `POINT_SIZE_MODE`'s values. */
+  pointSizeMode: number;
   /** One of `COLOR_MODE`'s values. */
   colorMode: number;
   /** Raw LAS intensity units at the two ends of the intensity ramp. */
@@ -361,6 +363,7 @@ export class PointCloudPrimitive {
     const { defaultTexture } = context as { defaultTexture: unknown };
     return {
       u_pixelSize: () => style.pixelSize,
+      u_pointSizeMode: () => style.pointSizeMode,
       u_nodeSpacing: () => this.nodeSpacing,
       u_visibleNodes: () =>
         (this.visibleNodes ?? this._splats?.visibleNodes)?.get(context) ?? defaultTexture,

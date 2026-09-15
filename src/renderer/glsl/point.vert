@@ -6,7 +6,9 @@ in float elevation;       // UNSIGNED_SHORT, normalized -> already 0..1 over the
 in vec3 localPos;         // UNSIGNED_SHORT x3, normalized -> 0..1 inside this node's cube
 
 uniform float u_pixelSize;
-// This node's world-space point spacing in meters (root spacing / 2^depth).
+uniform int u_pointSizeMode;
+// World-space point spacing in meters: this node's (root spacing / 2^depth) in
+// ADAPTIVE, the cloud's average drawn point spacing in ATTENUATED.
 uniform float u_nodeSpacing;
 // potree's visible-nodes texture (pointcloud.vs getLOD): one texel per drawn
 // node in level order, R = child mask, G*256+B = offset to the first drawn
@@ -102,19 +104,19 @@ void main() {
   // one-metre span one metre from the eye covers.
   float pixelsPerMetre = 0.5 * czm_viewport.w * czm_projection[1][1];
 
-  if (u_nodeSpacing > 0.0) {
+  // potree's pointcloud.vs getPointSize: r = uOctreeSpacing * 1.7 in ADAPTIVE,
+  // minSize/maxSize [2, 50] for all three.
+  float pointSize = u_pixelSize;
+  if (u_pointSizeMode == POINT_SIZE_MODE_ADAPTIVE) {
     float spacing = u_nodeSpacing;
     if (u_vnStart >= 0.0) spacing /= exp2(float(visibleLevelsBelow()));
-    // 1.7 and the [2, 50] clamp are potree's own ADAPTIVE constants
-    // (pointcloud.vs getPointSize: r = uOctreeSpacing * 1.7, minSize/maxSize).
-    gl_PointSize = clamp(
-      spacing * 1.7 * u_pixelSize * pixelsPerMetre / eyeDistance,
-      2.0,
-      50.0
-    );
-  } else {
-    gl_PointSize = u_pixelSize;
+    pointSize = spacing * 1.7 * u_pixelSize * pixelsPerMetre / eyeDistance;
+  } else if (u_pointSizeMode == POINT_SIZE_MODE_ATTENUATED) {
+    // Not potree's formula: its ATTENUATED reads a per-point `spacing`
+    // attribute no loader fills, which pins the mode at minSize there.
+    pointSize = u_nodeSpacing * 1.7 * u_pixelSize * pixelsPerMetre / eyeDistance;
   }
+  gl_PointSize = clamp(pointSize, 2.0, 50.0);
 
 #ifdef HQ_DEPTH_PASS
   v_frontDepth = log2((gl_Position.w - czm_currentFrustum.x) + 1.0) * czm_oneOverLog2FarDepthFromNearPlusOne;

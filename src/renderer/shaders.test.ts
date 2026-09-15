@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLOR_MODE, buildClassMask, vertexShaderSource } from './shaders';
+import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask, vertexShaderSource } from './shaders';
 import { CLASSIFICATION_COLORS, DEFAULT_CLASS_COLOR } from '../style/classificationColors';
 
 /** Mirrors `classAllowed()` in the vertex shader, so the two encodings stay tied together. */
@@ -78,11 +78,21 @@ describe('vertexShaderSource', () => {
     expect(vertexShaderSource).not.toContain('COLOR_MODE_RGB');
   });
 
+  it('branches on the same point size mode numbers the TypeScript side sends', () => {
+    expect(vertexShaderSource).toContain(
+      `#define POINT_SIZE_MODE_ATTENUATED ${POINT_SIZE_MODE.attenuated}`,
+    );
+    expect(vertexShaderSource).toContain(`#define POINT_SIZE_MODE_ADAPTIVE ${POINT_SIZE_MODE.adaptive}`);
+    expect(vertexShaderSource).toContain('u_pointSizeMode == POINT_SIZE_MODE_ATTENUATED');
+    expect(vertexShaderSource).toContain('u_pointSizeMode == POINT_SIZE_MODE_ADAPTIVE');
+  });
+
   it('declares the attributes and uniforms the primitive binds', () => {
     for (const decl of [
       'in float intensity;',
       'in float classification;',
       'in float elevation;',
+      'uniform int u_pointSizeMode;',
       'uniform int u_colorMode;',
       'uniform vec2 u_intensityRange;',
       'uniform ivec4 u_classMask[2];',

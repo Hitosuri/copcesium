@@ -12,7 +12,7 @@ import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
 export type ColorMode = 'rgb' | 'intensity' | 'classification' | 'elevation';
 
 /** How a point's screen size is chosen. */
-export type PointSizeMode = 'fixed' | 'adaptive';
+export type PointSizeMode = 'fixed' | 'attenuated' | 'adaptive';
 
 /** Public options for CopcDataSource */
 export interface CopcDataSourceOptions {
@@ -55,13 +55,16 @@ export interface CopcDataSourceOptions {
   maxPoints?: number;
   pixelSize?: number;
   /**
-   * `'fixed'` (default) draws every point at `pixelSize` pixels regardless of
-   * distance. `'adaptive'` is Potree's ADAPTIVE mode: a point is drawn at the
+   * Potree's three modes. `'fixed'` (default) draws every point at `pixelSize`
+   * pixels regardless of distance. `'attenuated'` draws every point at the
+   * screen size the cloud's average drawn point spacing (footprint area /
+   * point count capped at `maxPoints`) covers at its distance, whatever level it belongs to (Potree's own ATTENUATED never receives a spacing and
+   * stays at the 2 pixel floor). `'adaptive'` is Potree's ADAPTIVE mode: a point is drawn at the
    * screen size its octree node's world-space spacing (the COPC info VLR's
    * root `spacing`, halved per depth) covers at that point's own distance, so
    * coarse levels draw fat points that hide the gaps they leave and every
-   * level shrinks as the camera closes in. `pixelSize` becomes a multiplier on
-   * that size, and the result is clamped to 1-50 pixels.
+   * level shrinks as the camera closes in. Outside `'fixed'`, `pixelSize`
+   * becomes a multiplier on that size. Every mode is clamped to 2-50 pixels.
    */
   pointSizeMode?: PointSizeMode;
   sseThreshold?: number;

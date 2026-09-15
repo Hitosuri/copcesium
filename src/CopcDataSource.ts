@@ -34,7 +34,7 @@ import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
 import { offsetShift, type PointStyle } from './renderer/PointCloudPrimitive';
-import { COLOR_MODE, buildClassMask } from './renderer/shaders';
+import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
 import { NodeCache } from './cache/NodeCache';
@@ -212,6 +212,7 @@ export class CopcDataSource {
     this._project = project;
     this._style = {
       pixelSize: options.pixelSize,
+      pointSizeMode: POINT_SIZE_MODE[options.pointSizeMode],
       colorMode: COLOR_MODE[options.colorMode],
       intensityRange: new Cesium.Cartesian2(
         options.intensityRange?.[0] ?? 0,
@@ -677,15 +678,19 @@ export class CopcDataSource {
   }
 
   /**
-   * This node's point spacing in meters, or 0 outside `'adaptive'` mode. The
-   * COPC info VLR's `spacing` is the root cube's, in the file's own XY units,
-   * and each octree level halves it.
+   * The COPC info VLR's `spacing` is the root cube's, in the file's own XY
+   * units, and each octree level halves it.
    */
   private _nodeSpacing(key: string): number {
     return this._spacingAtDepth(getDepth(key));
   }
 
   private _spacingAtDepth(depth: number): number {
+    if (this._options.pointSizeMode === 'attenuated') {
+      const { min, max, pointCount } = this._copc.header;
+      const area = (max[0] - min[0]) * (max[1] - min[1]) * this._options.xyFactor ** 2;
+      return Math.sqrt(area / Math.min(pointCount, this._options.maxPoints));
+    }
     if (this._options.pointSizeMode !== 'adaptive') return 0;
     return (this._copc.info.spacing * this._options.xyFactor) / 2 ** depth;
   }
@@ -695,7 +700,7 @@ export class CopcDataSource {
    * coarse ancestor stops drawing points fat enough to bury the detail its descendants add.
    */
   private _applyNodeSpacing(shown: Set<string>): boolean {
-    if (this._options.pointSizeMode !== 'adaptive') return false;
+    if (this._options.pointSizeMode === 'fixed') return false;
 
     const deepest = new Map<string, number>();
 
@@ -731,6 +736,16 @@ export class CopcDataSource {
   }
   set pixelSize(value: number) {
     this._style.pixelSize = value;
+    this._viewer.scene.requestRender();
+  }
+
+  get pointSizeMode(): PointSizeMode {
+    return this._options.pointSizeMode;
+  }
+  set pointSizeMode(value: PointSizeMode) {
+    this._options.pointSizeMode = value;
+    this._style.pointSizeMode = POINT_SIZE_MODE[value];
+    this._applyNodeSpacing(this._selectedKeys);
     this._viewer.scene.requestRender();
   }
 

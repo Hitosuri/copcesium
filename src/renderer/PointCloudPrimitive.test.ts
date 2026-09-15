@@ -44,6 +44,7 @@ const renderData: NodeRenderData = {
 
 const style = {
   pixelSize: 2,
+  pointSizeMode: 0,
   colorMode: 0,
   intensityRange: new Cesium.Cartesian2(0, 65535),
   classMask: [new Cesium.Cartesian4(-1, -1, -1, -1), new Cesium.Cartesian4(-1, -1, -1, -1)],
@@ -115,7 +116,7 @@ describe('adaptive point size', () => {
     expect(nodeSpacingUniform()).toBe(0.35);
   });
 
-  it('reports no spacing when none is given, which selects the fixed-size path', () => {
+  it('reports no spacing when none is given', () => {
     new PointCloudPrimitive(renderData, sphere, style).update(frame());
 
     expect(nodeSpacingUniform()).toBe(0);

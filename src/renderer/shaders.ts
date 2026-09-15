@@ -13,6 +13,13 @@ export const COLOR_MODE = {
   elevation: 3,
 } as const;
 
+/** Point size mode as the shader sees it. Kept in sync with `PointSizeMode` in types.ts. */
+export const POINT_SIZE_MODE = {
+  fixed: 0,
+  attenuated: 1,
+  adaptive: 2,
+} as const;
+
 /**
  * Packs classification codes into the 8 signed 32-bit words `classAllowed()`
  * below reads. `undefined` means "no filter" and sets every bit.
@@ -55,6 +62,8 @@ const vertexPrelude = `
 #define COLOR_MODE_INTENSITY ${COLOR_MODE.intensity}
 #define COLOR_MODE_CLASSIFICATION ${COLOR_MODE.classification}
 #define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}
+#define POINT_SIZE_MODE_ATTENUATED ${POINT_SIZE_MODE.attenuated}
+#define POINT_SIZE_MODE_ADAPTIVE ${POINT_SIZE_MODE.adaptive}
 #define VISIBLE_NODES_MAX_WALK ${VISIBLE_NODES_MAX_WALK}
 
 vec3 classificationColor(int c) {

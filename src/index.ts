@@ -6,4 +6,5 @@ export { encodeVisibleNodes, VisibleNodesTexture } from './renderer/visibleNodes
 export type { VisibleNode, VisibleNodesData } from './renderer/visibleNodes';
 export { PointCloudPrimitive, offsetShift } from './renderer/PointCloudPrimitive';
 export type { PointStyle } from './renderer/PointCloudPrimitive';
+export { POINT_SIZE_MODE } from './renderer/shaders';
 export { WorkerPool } from './worker/WorkerPool';
