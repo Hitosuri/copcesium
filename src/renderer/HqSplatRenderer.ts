@@ -1,5 +1,10 @@
 import * as Cesium from 'cesium';
-import { compositeFragmentShaderSource, fragmentShaderSource, vertexShaderSource } from './shaders';
+import {
+  compositeFragmentShaderSource,
+  depthDilateFragmentShaderSource,
+  fragmentShaderSource,
+  vertexShaderSource,
+} from './shaders';
 import type { PointCloudPrimitive } from './PointCloudPrimitive';
 import { VisibleNodesTexture } from './visibleNodes';
 
@@ -8,7 +13,7 @@ import { VisibleNodesTexture } from './visibleNodes';
 interface CesiumInternal {
   ClearCommand: new (opts: Record<string, unknown>) => Command;
   Framebuffer: new (opts: Record<string, unknown>) => Destroyable;
-  Pass: { CESIUM_3D_TILE: unknown };
+  Pass: { CESIUM_3D_TILE: unknown; OPAQUE: unknown };
   RenderState: { fromCache(opts: Record<string, unknown>): unknown };
   Sampler: new (opts: Record<string, unknown>) => unknown;
   ShaderProgram: {
@@ -105,6 +110,9 @@ export class HqSplatRenderer {
   /** Eye-dome lighting (potree's defaults). `strength` 0 turns it off. */
   readonly edl = { strength: 0, radius: 1.4 };
 
+  /** Fills the scene depth between splats, so gaps stop reading as the terrain behind them. `radius` 0 turns it off. */
+  readonly depthDilate = { radius: 0 };
+
   show = true;
 
   readonly visibleNodes = new VisibleNodesTexture();
@@ -120,6 +128,7 @@ export class HqSplatRenderer {
   private _clear: Command | null = null;
   private _clearDepth: Command | null = null;
   private _composite: Command | null = null;
+  private _dilate: Command | null = null;
   private _destroyed = false;
 
   get framebuffer(): unknown {
@@ -215,6 +224,7 @@ export class HqSplatRenderer {
     this._clear!.boundingVolume = bounds;
     this._clearDepth!.boundingVolume = bounds;
     this._composite!.boundingVolume = bounds;
+    this._dilate!.boundingVolume = bounds;
 
     frameState.commandList.push(
       this._clear,
@@ -223,6 +233,7 @@ export class HqSplatRenderer {
       ...attributeCommands,
       this._composite,
     );
+    if (this.depthDilate.radius > 0) frameState.commandList.push(this._dilate);
   }
 
   private _ensureTargets(context: Context): void {
@@ -325,6 +336,26 @@ export class HqSplatRenderer {
     // Same pass as Cesium3DTileset: it runs before OPAQUE and feeds globe depth, so
     // entity depthFailMaterial, clampToGround and pickPosition see the cloud like a mesh.
     this._composite.pass = CesiumAny.Pass.CESIUM_3D_TILE;
+
+    const dilateSource = new CesiumAny.ShaderSource({
+      defines: ['LOG_DEPTH_READ_ONLY'],
+      sources: [depthDilateFragmentShaderSource],
+    });
+    this._dilate = context.createViewportQuadCommand(dilateSource, {
+      renderState: CesiumAny.RenderState.fromCache({
+        depthTest: { enabled: true },
+        depthMask: true,
+        colorMask: { red: false, green: false, blue: false, alpha: false },
+      }),
+      uniformMap: {
+        u_splatFrontDepth: () => this._frontDepth,
+        u_radius: () => this.depthDilate.radius,
+      },
+      owner: this,
+    });
+    // OPAQUE runs after GLOBE, so the globe has already drawn its colour and the masked write
+    // only replaces the depth the camera controller and pickPosition read back.
+    this._dilate.pass = CesiumAny.Pass.OPAQUE;
   }
 
   private _destroyTargets(): void {
@@ -334,7 +365,7 @@ export class HqSplatRenderer {
     this._frontDepth?.destroy();
     this._depth?.destroy();
     this._framebuffer = this._depthFramebuffer = this._color = this._frontDepth = this._depth = null;
-    this._clear = this._clearDepth = this._composite = null;
+    this._clear = this._clearDepth = this._composite = this._dilate = null;
   }
 
   isDestroyed(): boolean {

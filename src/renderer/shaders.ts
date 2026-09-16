@@ -3,6 +3,7 @@ import { CLASSIFICATION_COLORS, DEFAULT_CLASS_COLOR } from '../style/classificat
 import pointVert from './glsl/point.vert?raw';
 import pointFrag from './glsl/point.frag?raw';
 import compositeFrag from './glsl/composite.frag?raw';
+import depthDilateFrag from './glsl/depthDilate.frag?raw';
 import { VISIBLE_NODES_MAX_WALK } from './visibleNodes';
 
 /** Colour mode as the shader sees it. Kept in sync with `ColorMode` in types.ts. */
@@ -75,3 +76,4 @@ ${classificationBranches}
 export const vertexShaderSource: string = vertexPrelude + pointVert;
 export const fragmentShaderSource = pointFrag;
 export const compositeFragmentShaderSource = compositeFrag;
+export const depthDilateFragmentShaderSource = depthDilateFrag;
