@@ -18,7 +18,11 @@ void main() {
 #elif defined(HQ_WEIGHTED)
   // potree's weighted_splats: premultiplied by a radial falloff, summed by
   // additive blending, divided back out by the composite pass.
-  float weight = pow(1.0 - sqrt(d2), 1.5);
+  // The SOURCE_ALPHA blend squares the weight before it lands in the
+  // half-float target, and rim weights below ~2e-4 square to below half-float's
+  // smallest subnormal, so a lone rim fragment stored 0 and the composite
+  // discarded that pixel as empty.
+  float weight = max(pow(1.0 - sqrt(d2), 1.5), 1e-2);
   out_FragColor = vec4(v_color.rgb * weight, weight);
 #else
   out_FragColor = v_color;
