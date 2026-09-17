@@ -97,6 +97,10 @@ describe('vertexShaderSource', () => {
       'uniform vec2 u_intensityRange;',
       'uniform ivec4 u_classMask[2];',
       'uniform float u_opacity;',
+      'uniform int u_filterMode;',
+      'uniform vec3 u_filterColor;',
+      'uniform float u_filterTolerance;',
+      'uniform vec3 u_filterPaint;',
     ]) {
       expect(vertexShaderSource).toContain(decl);
     }

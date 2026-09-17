@@ -31,6 +31,8 @@ export interface PointStyle {
   classMask: Cesium.Cartesian4[];
   /** Alpha multiplier applied to every point's colour, 0..1. */
   opacity: number;
+  /** As `buildColorFilter` packs it; `undefined` draws every colour. */
+  colorFilter?: { color: Cesium.Cartesian3; tolerance: number; mode: number; paint: Cesium.Cartesian3 };
   /**
    * Meters to shift every point along its node's local "up" (the ECEF
    * direction from Earth's center through the node origin), for correcting a
@@ -372,6 +374,10 @@ export class PointCloudPrimitive {
       u_intensityRange: () => style.intensityRange,
       u_classMask: () => style.classMask,
       u_opacity: () => style.opacity,
+      u_filterMode: () => style.colorFilter?.mode ?? 0,
+      u_filterColor: () => style.colorFilter?.color ?? Cesium.Cartesian3.ZERO,
+      u_filterTolerance: () => style.colorFilter?.tolerance ?? 1,
+      u_filterPaint: () => style.colorFilter?.paint ?? Cesium.Cartesian3.ZERO,
     };
   }
 

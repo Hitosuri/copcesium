@@ -14,6 +14,17 @@ export type ColorMode = 'rgb' | 'intensity' | 'classification' | 'elevation';
 /** How a point's screen size is chosen. */
 export type PointSizeMode = 'fixed' | 'attenuated' | 'adaptive';
 
+/** Keeps the points whose raw RGB lies within `tolerance` of `color`; the rest are painted over or dropped. */
+export interface ColorFilter {
+  /** RGB, each 0..1. */
+  color: [number, number, number];
+  /** 0..1: how far from `color` a point may sit and still match, 1 being the widest distance any two colours have. Hue and chroma count fully, lightness a quarter. */
+  tolerance: number;
+  mode: 'paint' | 'hide';
+  /** RGB painted over non-matching points in `'paint'` mode, each 0..1. Default black. */
+  paint?: [number, number, number];
+}
+
 /** Public options for CopcDataSource */
 export interface CopcDataSourceOptions {
   proj?: string;
@@ -87,6 +98,8 @@ export interface CopcDataSourceOptions {
    * vertex shader. Omit to draw everything.
    */
   classificationFilter?: number[];
+  /** Omit to draw every colour. */
+  colorFilter?: ColorFilter;
   /**
    * Raw LAS intensity values mapped to the two ends of the `'intensity'` ramp.
    * Omitted, the range grows to `[0, highest intensity seen so far]` as nodes

@@ -5,6 +5,8 @@ import pointFrag from './glsl/point.frag?raw';
 import compositeFrag from './glsl/composite.frag?raw';
 import depthDilateFrag from './glsl/depthDilate.frag?raw';
 import { VISIBLE_NODES_MAX_WALK } from './visibleNodes';
+import type { ColorFilter } from '../types';
+import type { PointStyle } from './PointCloudPrimitive';
 
 /** Colour mode as the shader sees it. Kept in sync with `ColorMode` in types.ts. */
 export const COLOR_MODE = {
@@ -20,6 +22,23 @@ export const POINT_SIZE_MODE = {
   attenuated: 1,
   adaptive: 2,
 } as const;
+
+/** Colour filter mode as the shader sees it. Kept in sync with `ColorFilter['mode']` in types.ts. */
+export const COLOR_FILTER_MODE = {
+  off: 0,
+  paint: 1,
+  hide: 2,
+} as const;
+
+export function buildColorFilter(filter: ColorFilter | undefined): PointStyle['colorFilter'] {
+  if (!filter) return undefined;
+  return {
+    color: Cesium.Cartesian3.fromArray(filter.color),
+    tolerance: filter.tolerance,
+    mode: COLOR_FILTER_MODE[filter.mode],
+    paint: Cesium.Cartesian3.fromArray(filter.paint ?? [0, 0, 0]),
+  };
+}
 
 /**
  * Packs classification codes into the 8 signed 32-bit words `classAllowed()`
@@ -65,6 +84,8 @@ const vertexPrelude = `
 #define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}
 #define POINT_SIZE_MODE_ATTENUATED ${POINT_SIZE_MODE.attenuated}
 #define POINT_SIZE_MODE_ADAPTIVE ${POINT_SIZE_MODE.adaptive}
+#define COLOR_FILTER_MODE_OFF ${COLOR_FILTER_MODE.off}
+#define COLOR_FILTER_MODE_HIDE ${COLOR_FILTER_MODE.hide}
 #define VISIBLE_NODES_MAX_WALK ${VISIBLE_NODES_MAX_WALK}
 
 vec3 classificationColor(int c) {

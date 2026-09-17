@@ -10,6 +10,7 @@ import * as Cesium from 'cesium';
 import proj4 from 'proj4';
 import { Copc, type Hierarchy } from 'copc';
 import type {
+  ColorFilter,
   ColorMode,
   CopcDataSourceOptions,
   CopcStats,
@@ -34,7 +35,7 @@ import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
 import { offsetShift, type PointStyle } from './renderer/PointCloudPrimitive';
-import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask } from './renderer/shaders';
+import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask, buildColorFilter } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
 import { NodeCache } from './cache/NodeCache';
@@ -68,7 +69,11 @@ function validateOpacity(value: number): number {
  * externally-supplied `WorkerPool` overrides even that.
  */
 type OpenEndedOption =
-  'classificationFilter' | 'intensityRange' | 'maxCacheBytes' | 'maxConcurrentRequests';
+  | 'classificationFilter'
+  | 'colorFilter'
+  | 'intensityRange'
+  | 'maxCacheBytes'
+  | 'maxConcurrentRequests';
 
 type ResolvedOptions = Required<Omit<CopcDataSourceOptions, OpenEndedOption>> &
   Pick<CopcDataSourceOptions, OpenEndedOption>;
@@ -219,6 +224,7 @@ export class CopcDataSource {
         options.intensityRange?.[1] ?? 1,
       ),
       classMask: buildClassMask(options.classificationFilter),
+      colorFilter: buildColorFilter(options.colorFilter),
       heightOffset: 0,
       eastOffset: 0,
       northOffset: 0,
@@ -791,6 +797,16 @@ export class CopcDataSource {
     const mask = buildClassMask(value);
     this._options.classificationFilter = value;
     this._style.classMask = mask;
+    this._viewer.scene.requestRender();
+  }
+
+  /** Colour filter, or `undefined` to draw every colour. */
+  get colorFilter(): ColorFilter | undefined {
+    return this._options.colorFilter;
+  }
+  set colorFilter(value: ColorFilter | undefined) {
+    this._options.colorFilter = value;
+    this._style.colorFilter = buildColorFilter(value);
     this._viewer.scene.requestRender();
   }
 

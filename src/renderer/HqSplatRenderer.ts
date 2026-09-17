@@ -52,6 +52,22 @@ interface Context {
     fragmentShaderSource: unknown,
     overrides: Record<string, unknown>,
   ): Command;
+  readPixels(readState: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    framebuffer: unknown;
+  }): Float32Array | Uint16Array | Uint8Array;
+}
+
+function halfToFloat(h: number): number {
+  const sign = h & 0x8000 ? -1 : 1;
+  const exponent = (h >> 10) & 0x1f;
+  const mantissa = h & 0x3ff;
+  if (exponent === 0) return sign * mantissa * 2 ** -24;
+  if (exponent === 31) return mantissa ? NaN : sign * Infinity;
+  return sign * (1 + mantissa / 1024) * 2 ** (exponent - 15);
 }
 
 export interface SplatFrameState {
@@ -129,10 +145,35 @@ export class HqSplatRenderer {
   private _clearDepth: Command | null = null;
   private _composite: Command | null = null;
   private _dilate: Command | null = null;
+  private _context: Context | null = null;
   private _destroyed = false;
 
   get framebuffer(): unknown {
     return this._framebuffer;
+  }
+
+  /**
+   * Blended colour of the splats under drawing-buffer pixel (x, y), y down,
+   * as 0..1 RGB, or `null` where none drew. Reads the last frame's
+   * accumulation target, before EDL.
+   */
+  readColor(x: number, y: number): [number, number, number] | null {
+    if (!this._framebuffer || !this._context) return null;
+    const raw = this._context.readPixels({
+      x: Math.round(x),
+      y: this._height - 1 - Math.round(y),
+      width: 1,
+      height: 1,
+      framebuffer: this._framebuffer,
+    });
+    const [r, g, b, a] =
+      raw instanceof Uint16Array
+        ? Array.from(raw, halfToFloat)
+        : raw instanceof Uint8Array
+          ? Array.from(raw, (v) => v / 255)
+          : Array.from(raw);
+    if (!(a > 0)) return null;
+    return [r / a, g / a, b / a];
   }
 
   get depthFramebuffer(): unknown {
@@ -188,6 +229,7 @@ export class HqSplatRenderer {
     if (this._destroyed || !this.show || !frameState.passes.render) return;
 
     const context = frameState.context as Context;
+    this._context = context;
     const shown: PointCloudPrimitive[] = [];
     for (const node of this._nodes) {
       if (node.show && !node.isDestroyed()) shown.push(node);

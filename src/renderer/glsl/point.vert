@@ -20,6 +20,36 @@ uniform int u_colorMode;
 uniform vec2 u_intensityRange;  // raw LAS units, mapped to the ramp's 0..1
 uniform ivec4 u_classMask[2];   // 256-bit allow-list, one bit per classification code
 uniform float u_opacity;
+uniform int u_filterMode;
+uniform vec3 u_filterColor;
+uniform float u_filterTolerance;  // 0..1, fraction of FILTER_MAX_DISTANCE
+uniform vec3 u_filterPaint;
+
+// Lightness weight in the filter distance: below 1 a shaded and a lit point of
+// the same hue read as close, so a picked colour catches the whole surface.
+#define FILTER_LIGHTNESS_WEIGHT 0.25
+// Widest sRGB-gamut Oklab distance at that weight, so tolerance 1 matches every colour.
+#define FILTER_MAX_DISTANCE 0.6
+
+// Björn Ottosson's Oklab from gamma-encoded sRGB.
+vec3 oklab(vec3 c) {
+  c = pow(c, vec3(2.2));
+  vec3 lms = vec3(
+    0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b,
+    0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b,
+    0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b);
+  lms = pow(lms, vec3(1.0 / 3.0));
+  return vec3(
+    0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+    1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+    0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+}
+
+float filterDistance(vec3 a, vec3 b) {
+  vec3 d = oklab(a) - oklab(b);
+  d.x *= FILTER_LIGHTNESS_WEIGHT;
+  return length(d);
+}
 
 out vec4 v_color;
 out float v_frontDepth;
@@ -69,7 +99,10 @@ int visibleLevelsBelow() {
 void main() {
   int c = int(classification * 255.0 + 0.5);
 
-  if (!classAllowed(c)) {
+  bool filtered = u_filterMode != COLOR_FILTER_MODE_OFF &&
+    filterDistance(color.rgb, u_filterColor) > u_filterTolerance * FILTER_MAX_DISTANCE;
+
+  if (!classAllowed(c) || (filtered && u_filterMode == COLOR_FILTER_MODE_HIDE)) {
     // Outside clip space, so the point is culled before it ever rasterizes.
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
@@ -90,6 +123,7 @@ void main() {
     rgb = color.rgb;
   }
 
+  if (filtered) rgb = u_filterPaint;
   v_color = vec4(rgb, color.a * u_opacity);
   // position is a node-relative offset (model coordinates); the node origin
   // rides in the model matrix. Reconstruct the eye-relative position the way

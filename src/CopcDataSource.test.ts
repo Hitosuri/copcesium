@@ -1192,6 +1192,20 @@ describe('CopcDataSource runtime API', () => {
     expect(ds.classificationFilter).toEqual([2, 6]);
   });
 
+  it('applies colorFilter to the shared style and clears it on undefined', async () => {
+    mockCopc(undefined);
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+
+    expect(ds.colorFilter).toBeUndefined();
+    ds.colorFilter = { color: [0.2, 0.6, 0.1], tolerance: 0.3, mode: 'hide' };
+    expect(ds.colorFilter).toEqual({ color: [0.2, 0.6, 0.1], tolerance: 0.3, mode: 'hide' });
+    expect(requestRender).toHaveBeenCalled();
+
+    ds.colorFilter = undefined;
+    expect(ds.colorFilter).toBeUndefined();
+  });
+
   it('grows the intensity range as nodes load, and stops once the caller pins it', async () => {
     mockCopc(undefined, EXTRA_NODES);
     selectNodesMock.mockReturnValue(['0-0-0-0']);
