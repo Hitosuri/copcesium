@@ -17,6 +17,7 @@ uniform float u_nodeSpacing;
 uniform sampler2D u_visibleNodes;
 uniform float u_vnStart;
 uniform int u_colorMode;
+uniform float u_depth;          // this node's octree depth, for COLOR_MODE_LOD
 uniform vec2 u_intensityRange;  // raw LAS units, mapped to the ramp's 0..1
 uniform ivec4 u_classMask[2];   // 256-bit allow-list, one bit per classification code
 uniform float u_opacity;
@@ -119,6 +120,12 @@ void main() {
     rgb = classificationColor(c);
   } else if (u_colorMode == COLOR_MODE_ELEVATION) {
     rgb = elevationColor(elevation);
+  } else if (u_colorMode == COLOR_MODE_LOD) {
+    // potree's LEVEL_OF_DETAIL: getLOD() / 10 through the same ramp, where getLOD() is
+    // the deepest drawn node containing the point, not the node the point was loaded with.
+    float lod = u_depth;
+    if (u_vnStart >= 0.0) lod += float(visibleLevelsBelow());
+    rgb = elevationColor(lod / 10.0);
   } else {
     rgb = color.rgb;
   }

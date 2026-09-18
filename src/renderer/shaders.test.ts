@@ -71,9 +71,11 @@ describe('vertexShaderSource', () => {
       `#define COLOR_MODE_CLASSIFICATION ${COLOR_MODE.classification}`,
     );
     expect(vertexShaderSource).toContain(`#define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}`);
+    expect(vertexShaderSource).toContain(`#define COLOR_MODE_LOD ${COLOR_MODE.lod}`);
     expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_INTENSITY');
     expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_CLASSIFICATION');
     expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_ELEVATION');
+    expect(vertexShaderSource).toContain('u_colorMode == COLOR_MODE_LOD');
     // 'rgb' is the else branch, so it must not have a comparison of its own.
     expect(vertexShaderSource).not.toContain('COLOR_MODE_RGB');
   });
@@ -94,6 +96,7 @@ describe('vertexShaderSource', () => {
       'in float elevation;',
       'uniform int u_pointSizeMode;',
       'uniform int u_colorMode;',
+      'uniform float u_depth;',
       'uniform vec2 u_intensityRange;',
       'uniform ivec4 u_classMask[2];',
       'uniform float u_opacity;',

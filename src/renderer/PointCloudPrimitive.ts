@@ -371,6 +371,7 @@ export class PointCloudPrimitive {
         (this.visibleNodes ?? this._splats?.visibleNodes)?.get(context) ?? defaultTexture,
       u_vnStart: () => (this._hasLocalPositions ? this.vnStart : -1),
       u_colorMode: () => style.colorMode,
+      u_depth: () => this.depth,
       u_intensityRange: () => style.intensityRange,
       u_classMask: () => style.classMask,
       u_opacity: () => style.opacity,

@@ -14,6 +14,7 @@ export const COLOR_MODE = {
   intensity: 1,
   classification: 2,
   elevation: 3,
+  lod: 4,
 } as const;
 
 /** Point size mode as the shader sees it. Kept in sync with `PointSizeMode` in types.ts. */
@@ -82,6 +83,7 @@ const vertexPrelude = `
 #define COLOR_MODE_INTENSITY ${COLOR_MODE.intensity}
 #define COLOR_MODE_CLASSIFICATION ${COLOR_MODE.classification}
 #define COLOR_MODE_ELEVATION ${COLOR_MODE.elevation}
+#define COLOR_MODE_LOD ${COLOR_MODE.lod}
 #define POINT_SIZE_MODE_ATTENUATED ${POINT_SIZE_MODE.attenuated}
 #define POINT_SIZE_MODE_ADAPTIVE ${POINT_SIZE_MODE.adaptive}
 #define COLOR_FILTER_MODE_OFF ${COLOR_FILTER_MODE.off}

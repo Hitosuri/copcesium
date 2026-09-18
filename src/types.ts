@@ -8,8 +8,9 @@ import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
  * Red/Green/Blue — this is the historical (and default) behaviour.
  * `'classification'` applies the palette unconditionally, so it works on a
  * file that *does* have RGB too.
+ * `'lod'` colours each point by the octree depth of its node.
  */
-export type ColorMode = 'rgb' | 'intensity' | 'classification' | 'elevation';
+export type ColorMode = 'rgb' | 'intensity' | 'classification' | 'elevation' | 'lod';
 
 /** How a point's screen size is chosen. */
 export type PointSizeMode = 'fixed' | 'attenuated' | 'adaptive';
