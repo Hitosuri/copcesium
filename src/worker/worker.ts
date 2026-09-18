@@ -152,7 +152,7 @@ function readRgbRaw(
  * lod/boundingVolume.ts (#13), so neither is duplicated here.
  */
 export async function convertNode(payload: NodeConversionPayload): Promise<NodeRenderData> {
-  const { compressedBytes, copc, node, proj, projDef, geoidOffset, zFactor, zMin, zMax } = payload;
+  const { compressedBytes, copc, node, proj, projDef, geoidOffset, zFactor, zMin, zMax, nodeCube } = payload;
 
   const lazPerf = await getLazPerf();
   const view = await Copc.loadPointDataView(createBufferGetter(compressedBytes), copc, node, { lazPerf });
@@ -193,6 +193,9 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
   const intensities = new Uint16Array(n);
   const classifications = new Uint8Array(n);
   const elevations = new Uint16Array(n);
+  const localPositions = new Uint16Array(n * 3);
+  const [cubeX, cubeY, cubeZ, cubeEdge] = nodeCube;
+  const localScale = cubeEdge > 0 ? 65535 / cubeEdge : 0;
   let maxIntensity = 0;
   let ox = 0;
   let oy = 0;
@@ -243,6 +246,9 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     }
 
     elevations[i] = Math.max(0, Math.min(65535, Math.round((z - zMin) * zScale)));
+    localPositions[i3] = Math.max(0, Math.min(65535, (x - cubeX) * localScale));
+    localPositions[i3 + 1] = Math.max(0, Math.min(65535, (y - cubeY) * localScale));
+    localPositions[i3 + 2] = Math.max(0, Math.min(65535, (z - cubeZ) * localScale));
 
     const i4 = i * 4;
     if (hasRGB && rgbRaw) {
@@ -262,7 +268,17 @@ export async function convertNode(payload: NodeConversionPayload): Promise<NodeR
     colors[i4 + 3] = 255;
   }
 
-  return { positions, origin: [ox, oy, oz], colors, intensities, classifications, elevations, pointCount: n, maxIntensity };
+  return {
+    positions,
+    origin: [ox, oy, oz],
+    colors,
+    intensities,
+    classifications,
+    elevations,
+    localPositions,
+    pointCount: n,
+    maxIntensity,
+  };
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest | WorkerCancelRequest>) => {
@@ -284,6 +300,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest | WorkerCancelRequest>) =>
       result.intensities.buffer,
       result.classifications.buffer,
       result.elevations.buffer,
+      result.localPositions!.buffer,
     ]);
   } catch (err) {
     const error = err as Error;

@@ -20,7 +20,8 @@ import type {
   StageTiming,
 } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
-import { bucketKeysByDepth, findRelevantKeys, getDepth, type ParsedKey } from './copc/node';
+import { bucketKeysByDepth, findRelevantKeys, getDepth, getOctantPath, type ParsedKey } from './copc/node';
+import { parseKey } from './copc/key';
 import { isRetryable, RangeFetcher } from './copc/RangeFetcher';
 import { createCountingGetter, type TransferCounter } from './copc/TransferCounter';
 import { detectCrs } from './crs/detectCrs';
@@ -34,6 +35,7 @@ import {
 import { selectNodes } from './lod/selectNodes';
 import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
+import { encodeVisibleNodes, VisibleNodesTexture } from './renderer/visibleNodes';
 import { offsetShift, type PointStyle } from './renderer/PointCloudPrimitive';
 import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask, buildColorFilter } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
@@ -182,6 +184,7 @@ export class CopcDataSource {
   private _autoIntensityRange: boolean;
   private readonly _nodeCache: NodeCache;
   private readonly _splats: HqSplatRenderer | null;
+  private readonly _visibleNodes: VisibleNodesTexture;
   private readonly _rangeFetcher: RangeFetcher;
   private readonly _workerPool: WorkerPool;
   private readonly _ownsPool: boolean;
@@ -232,6 +235,7 @@ export class CopcDataSource {
     };
     this._autoIntensityRange = options.intensityRange === undefined;
     this._splats = options.hqSplats ? viewer.scene.primitives.add(new HqSplatRenderer()) : null;
+    this._visibleNodes = this._splats?.visibleNodes ?? new VisibleNodesTexture();
     this._nodeCache = new NodeCache(
       options.maxCacheNodes,
       (_key, node) => this._destroyLoadedNode(node),
@@ -488,6 +492,7 @@ export class CopcDataSource {
       this._nodeCache.pin(stillShown);
       this._selectedKeys = stillShown;
       if (this._applyNodeSpacing(stillShown)) sceneChanged = true;
+      this._applyVisibleNodes(stillShown);
       if (sceneChanged) this._viewer.scene.requestRender();
     } finally {
       this._isUpdating = false;
@@ -565,6 +570,7 @@ export class CopcDataSource {
         zFactor: this._options.zFactor,
         zMin: this._copc.header.min[2],
         zMax: this._copc.header.max[2],
+        nodeCube: this._nodeCube(key),
       };
       const task = this._workerPool.run<NodeRenderData>(payload, [compressedBytes.buffer]);
       this._cancels.set(key, task.cancel);
@@ -590,6 +596,7 @@ export class CopcDataSource {
         this._splats,
       );
       primitive.depth = getDepth(key);
+      primitive.visibleNodes = this._visibleNodes;
       if (this._destroyed) {
         primitive.destroy();
         return;
@@ -702,23 +709,12 @@ export class CopcDataSource {
   }
 
   /**
-   * Re-points every shown node at the spacing of the deepest shown node covering it, so a
+   * Re-points every shown node at its own depth's spacing for the current size mode; the
+   * vertex shader halves it per drawn descendant level through the visible-nodes walk, so a
    * coarse ancestor stops drawing points fat enough to bury the detail its descendants add.
    */
   private _applyNodeSpacing(shown: Set<string>): boolean {
     if (this._options.pointSizeMode === 'fixed') return false;
-
-    const deepest = new Map<string, number>();
-
-    for (const key of shown) {
-      const [depth, x, y, z] = key.split('-').map(Number);
-
-      for (let d = depth, cx = x, cy = y, cz = z; d >= 0; d--, cx >>= 1, cy >>= 1, cz >>= 1) {
-        const ancestor = `${d}-${cx}-${cy}-${cz}`;
-        const known = deepest.get(ancestor);
-        if (known === undefined || known < depth) deepest.set(ancestor, depth);
-      }
-    }
 
     let changed = false;
 
@@ -726,7 +722,7 @@ export class CopcDataSource {
       const node = this._nodeCache.peek(key);
       if (!node) continue;
 
-      const spacing = this._spacingAtDepth(deepest.get(key) ?? getDepth(key));
+      const spacing = this._nodeSpacing(key);
       if (node.primitive.nodeSpacing === spacing) continue;
 
       node.primitive.nodeSpacing = spacing;
@@ -734,6 +730,29 @@ export class CopcDataSource {
     }
 
     return changed;
+  }
+
+  private _applyVisibleNodes(shown: Set<string>): void {
+    const drawn = [...shown].filter((key) => this._nodeCache.peek(key));
+    const { texels, offsets } = encodeVisibleNodes(
+      drawn.map((key) => ({ path: getOctantPath(key), level: getDepth(key) })),
+    );
+    this._visibleNodes.texels = texels;
+    for (const key of drawn) {
+      this._nodeCache.peek(key)!.primitive.vnStart = offsets.get(getOctantPath(key)) ?? -1;
+    }
+  }
+
+  private _nodeCube(key: string): [number, number, number, number] {
+    const [depth, x, y, z] = parseKey(key);
+    const half = this._rootHalfSize;
+    const edge = (half * 2) / 2 ** depth;
+    return [
+      this._rootCenter.x - half + x * edge,
+      this._rootCenter.y - half + y * edge,
+      this._rootCenter.z - half + z * edge,
+      edge,
+    ];
   }
 
   /** Point size in pixels, shared live by every loaded primitive (no reload needed). */
@@ -962,5 +981,6 @@ export class CopcDataSource {
     if (this._ownsPool) this._workerPool.destroy();
     this._nodeCache.destroy();
     if (this._splats) this._viewer.scene.primitives.remove(this._splats);
+    else this._visibleNodes.destroy();
   }
 }

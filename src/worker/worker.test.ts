@@ -48,6 +48,7 @@ const BASE_PAYLOAD = {
   zFactor: 1,
   zMin: 0,
   zMax: 100,
+  nodeCube: [0, 0, 0, 100] as [number, number, number, number],
 };
 
 describe('lonLatAltToEcef', () => {
@@ -212,6 +213,14 @@ describe('convertNode', () => {
     const result = await convertNode({ ...BASE_PAYLOAD, zMin: 5, zMax: 5 });
 
     expect(Array.from(result.elevations)).toEqual([0, 0]);
+  });
+
+  it('normalizes each point inside its node cube for the visible-nodes walk', async () => {
+    loadPointDataView.mockResolvedValueOnce(makeView({ X: [10, 35, 60], Y: [10, 10, 10], Z: [10, 60, 110] }));
+
+    const result = await convertNode({ ...BASE_PAYLOAD, nodeCube: [10, 10, 10, 50] });
+
+    expect(Array.from(result.localPositions!)).toEqual([0, 0, 0, 32767, 0, 65535, 65535, 0, 65535]);
   });
 
   it('rejects an out-of-range pointCount instead of allocating huge buffers', async () => {

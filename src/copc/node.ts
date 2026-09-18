@@ -6,6 +6,19 @@ export function getDepth(key: string): number {
 }
 
 /**
+ * Octant path from the root, one digit per level, in the vertex shader's octant order
+ * (`x * 4 + y * 2 + z`, the same as potree's node names) - the `VisibleNode.path`.
+ */
+export function getOctantPath(key: string): string {
+  const [depth, x, y, z] = parseKey(key);
+  let path = '';
+  for (let bit = depth - 1; bit >= 0; bit--) {
+    path += (((x >> bit) & 1) << 2) | (((y >> bit) & 1) << 1) | ((z >> bit) & 1);
+  }
+  return path;
+}
+
+/**
  * Returns the parent key of a node key, or `null` for the root (depth 0).
  * D-X-Y-Z → (D-1)-(X>>1)-(Y>>1)-(Z>>1)
  */

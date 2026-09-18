@@ -25,4 +25,6 @@ export interface NodeConversionPayload {
    */
   zMin: number;
   zMax: number;
+  /** This node's cube in source units: `[minX, minY, minZ, edge]`, for `localPositions`. */
+  nodeCube: [number, number, number, number];
 }

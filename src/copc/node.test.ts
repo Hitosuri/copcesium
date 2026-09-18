@@ -4,9 +4,29 @@ import {
   findRelevantKeys,
   getChildKeys,
   getDepth,
+  getOctantPath,
   getParentKey,
   isAncestorOf,
 } from './node';
+
+describe('getOctantPath', () => {
+  it('is empty for the root', () => {
+    expect(getOctantPath('0-0-0-0')).toBe('');
+  });
+
+  it('emits one octant digit per level, x in bit 2, y in bit 1, z in bit 0', () => {
+    expect(getOctantPath('1-1-0-0')).toBe('4');
+    expect(getOctantPath('1-0-1-0')).toBe('2');
+    expect(getOctantPath('1-0-0-1')).toBe('1');
+    // 2-3-1-2: level 1 takes the high bits (1,0,1) = 5, level 2 the low bits (1,1,0) = 6
+    expect(getOctantPath('2-3-1-2')).toBe('56');
+  });
+
+  it("is the parent's path plus the child's own octant", () => {
+    expect(getOctantPath('3-6-2-4')).toBe('560');
+    expect(getOctantPath('3-7-3-5')).toBe('567');
+  });
+});
 
 describe('getParentKey', () => {
   it('returns null for the root key', () => {
