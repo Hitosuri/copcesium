@@ -21,7 +21,14 @@ import type {
   StageTiming,
 } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
-import { bucketKeysByDepth, findRelevantKeys, getDepth, getOctantPath, type ParsedKey } from './copc/node';
+import {
+  bucketKeysByDepth,
+  findRelevantKeys,
+  getChildKeys,
+  getDepth,
+  getOctantPath,
+  type ParsedKey,
+} from './copc/node';
 import { parseKey } from './copc/key';
 import { isRetryable, RangeFetcher } from './copc/RangeFetcher';
 import { createCountingGetter, type TransferCounter } from './copc/TransferCounter';
@@ -33,7 +40,8 @@ import {
   isInFrustum,
   type ProjectToCartesian,
 } from './lod/boundingVolume';
-import { selectNodes } from './lod/selectNodes';
+import { selectNodes, type LodTree } from './lod/selectNodes';
+import type { LodClient } from './lod/LodScheduler';
 import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
 import { encodeVisibleNodes, VisibleNodesTexture } from './renderer/visibleNodes';
@@ -82,7 +90,8 @@ type OpenEndedOption =
   | 'colorFilter'
   | 'intensityRange'
   | 'maxCacheBytes'
-  | 'maxConcurrentRequests';
+  | 'maxConcurrentRequests'
+  | 'scheduler';
 
 type ResolvedOptions = Required<Omit<CopcDataSourceOptions, OpenEndedOption>> &
   Pick<CopcDataSourceOptions, OpenEndedOption>;
@@ -148,7 +157,7 @@ function percentile(sorted: number[], fraction: number): number {
 // without thrashing.
 const MAX_SPHERE_CACHE_SIZE = 5000;
 
-export class CopcDataSource {
+export class CopcDataSource implements LodClient<string> {
   private readonly _url: string;
   private readonly _viewer: Cesium.Viewer;
   private readonly _copc: Copc;
@@ -205,6 +214,7 @@ export class CopcDataSource {
   private _lastUpdateTime = 0;
   private _removeUpdateListener: () => void = () => {};
   private _removeMoveEndListener: () => void = () => {};
+  private _removeFromScheduler: () => void = () => {};
   private _destroyed = false;
 
   private constructor(
@@ -263,6 +273,22 @@ export class CopcDataSource {
     );
     this._workerPool = workerPool;
     this._ownsPool = ownsPool;
+  }
+
+  readonly tree: LodTree<string> = {
+    root: '0-0-0-0',
+    points: (key) => this._nodes[key]?.pointCount ?? 0,
+    sphere: (key) => this._getSphere(key),
+    children: (key) => getChildKeys(key).filter((child) => this._nodes[child]),
+    subpages: (key) =>
+      getChildKeys(key).filter((child) => !this._nodes[child] && this._pages[child]),
+    loadSubpage: (key) => {
+      if (!this._pendingPages.has(key)) void this._loadPage(key);
+    },
+  };
+
+  isVisible(): boolean {
+    return this._splats?.show ?? true;
   }
 
   /**
@@ -331,6 +357,11 @@ export class CopcDataSource {
     this._removeUpdateListener = this._viewer.scene.preRender.addEventListener(() =>
       this._onPreRender(),
     );
+    const { scheduler } = this._options;
+    if (scheduler) {
+      this._removeFromScheduler = scheduler.add(this);
+      return;
+    }
     this._removeMoveEndListener = this._viewer.scene.camera.moveEnd.addEventListener(() =>
       this._onMoveEnd(),
     );
@@ -389,6 +420,7 @@ export class CopcDataSource {
   private _onPreRender(): void {
     if (this._destroyed) return;
     this._updateVisibility();
+    if (this._options.scheduler) return;
 
     const now = performance.now();
     if (now - this._lastUpdateTime < this._options.debounceMs) return;
@@ -425,14 +457,6 @@ export class CopcDataSource {
     if (changed) this._viewer.scene.requestRender();
   }
 
-  /** Expensive: full reselection via `selectNodes`, then reconciles the render set (`show`)
-   *  against it and dispatches loads for anything newly selected but not yet
-   *  cached. A node dropping out of the selection is hidden only once its
-   *  replacement (children, on subdivision, or the parent, on merge) is
-   *  actually ready to show — otherwise it stays visible and pinned, so a
-   *  LoD transition never leaves a visible gap where neither the old nor the
-   *  new detail level is on screen. Nodes are only ever removed from the
-   *  scene by NodeCache's own LRU eviction, never by this reconciliation. */
   private async _updateLoD(): Promise<void> {
     if (this._destroyed) return;
     if (this._isUpdating) {
@@ -442,66 +466,19 @@ export class CopcDataSource {
     this._isUpdating = true;
     try {
       const neededPages = new Set<string>();
-      const newSelectedKeys = new Set(
-        selectNodes({
-          nodes: this._nodes,
-          pages: this._pages,
-          onPageNeeded: (key) => neededPages.add(key),
-          getSphere: (key) => this._getSphere(key),
-          camera: this._viewer.scene.camera,
-          viewportHeight: this._viewer.scene.canvas.clientHeight,
-          sseThreshold: this._options.sseThreshold,
-          maxVisibleNodes: this._options.maxVisibleNodes,
-          maxPoints: this._options.maxPoints,
-        }),
-      );
-
+      const keys = selectNodes({
+        nodes: this._nodes,
+        pages: this._pages,
+        onPageNeeded: (key) => neededPages.add(key),
+        getSphere: (key) => this._getSphere(key),
+        camera: this._viewer.scene.camera,
+        viewportHeight: this._viewer.scene.canvas.clientHeight,
+        sseThreshold: this._options.sseThreshold,
+        maxVisibleNodes: this._options.maxVisibleNodes,
+        maxPoints: this._options.maxPoints,
+      });
       this._dispatchPageLoads(neededPages);
-      this._cancelStaleLoads(newSelectedKeys);
-
-      let sceneChanged = false;
-
-      // Show/load the new selection first, so a just-arrived replacement
-      // already counts as "ready" when the hide pass below checks for it.
-      for (const key of newSelectedKeys) {
-        const node = this._nodeCache.peek(key);
-        if (node) {
-          const primitive = node.primitive;
-          if (!primitive.show) {
-            primitive.show = true;
-            sceneChanged = true;
-          }
-          continue;
-        }
-        if (this._pendingKeys.has(key)) continue;
-        void this._loadNode(key);
-      }
-
-      const stillShown = new Set(newSelectedKeys);
-      // Bucketed once per pass (not once per deselected key) so
-      // _isReplacementReady() doesn't re-parse every candidate key on every
-      // call -- see findRelevantKeys().
-      const selectionBuckets = bucketKeysByDepth(newSelectedKeys);
-      for (const key of this._selectedKeys) {
-        if (newSelectedKeys.has(key)) continue;
-        const node = this._nodeCache.peek(key);
-        if (!node) continue;
-        const primitive = node.primitive;
-        if (!primitive.show) continue;
-
-        if (this._isReplacementReady(key, selectionBuckets)) {
-          primitive.show = false;
-          sceneChanged = true;
-        } else {
-          stillShown.add(key); // keep it visible; re-checked again next pass
-        }
-      }
-
-      this._nodeCache.pin(stillShown);
-      this._selectedKeys = stillShown;
-      if (this._applyNodeSpacing(stillShown)) sceneChanged = true;
-      this._applyVisibleNodes(stillShown);
-      if (sceneChanged) this._viewer.scene.requestRender();
+      this.applySelection(keys);
     } finally {
       this._isUpdating = false;
       if (this._pendingUpdate) {
@@ -509,6 +486,69 @@ export class CopcDataSource {
         void this._updateLoD();
       }
     }
+  }
+
+  /** Reconciles the render set (`show`) against `keys` and dispatches loads
+   *  for anything newly selected but not yet cached. A node dropping out of
+   *  the selection is hidden only once its replacement (children, on
+   *  subdivision, or the parent, on merge) is actually ready to show -
+   *  otherwise it stays visible and pinned, so a LoD transition never leaves a
+   *  visible gap where neither the old nor the new detail level is on screen.
+   *  Nodes are only ever removed from the scene by NodeCache's own LRU
+   *  eviction, never by this reconciliation. */
+  applySelection(keys: string[]): void {
+    if (this._destroyed) return;
+    const newSelectedKeys = new Set(keys);
+    this._cancelStaleLoads(newSelectedKeys);
+
+    let sceneChanged = false;
+
+    // Show/load the new selection first, so a just-arrived replacement
+    // already counts as "ready" when the hide pass below checks for it.
+    for (const key of newSelectedKeys) {
+      const node = this._nodeCache.peek(key);
+      if (node) {
+        const primitive = node.primitive;
+        if (!primitive.show) {
+          primitive.show = true;
+          sceneChanged = true;
+        }
+        continue;
+      }
+      if (this._pendingKeys.has(key)) continue;
+      void this._loadNode(key);
+    }
+
+    const stillShown = new Set(newSelectedKeys);
+    // Bucketed once per pass (not once per deselected key) so
+    // _isReplacementReady() doesn't re-parse every candidate key on every
+    // call -- see findRelevantKeys().
+    const selectionBuckets = bucketKeysByDepth(newSelectedKeys);
+    for (const key of this._selectedKeys) {
+      if (newSelectedKeys.has(key)) continue;
+      const node = this._nodeCache.peek(key);
+      if (!node) continue;
+      const primitive = node.primitive;
+      if (!primitive.show) continue;
+
+      if (this._isReplacementReady(key, selectionBuckets)) {
+        primitive.show = false;
+        sceneChanged = true;
+      } else {
+        stillShown.add(key); // keep it visible; re-checked again next pass
+      }
+    }
+
+    this._nodeCache.pin(stillShown);
+    this._selectedKeys = stillShown;
+    if (this._applyNodeSpacing(stillShown)) sceneChanged = true;
+    this._applyVisibleNodes(stillShown);
+    if (sceneChanged) this._viewer.scene.requestRender();
+  }
+
+  private _requestLoD(): void {
+    if (this._options.scheduler) this._viewer.scene.requestRender();
+    else void this._updateLoD();
   }
 
   /** Kicks off a hierarchy page load for every page the current selection
@@ -653,7 +693,7 @@ export class CopcDataSource {
       delete this._pages[key];
       Object.assign(this._pages, pages);
       this._pageFailures.delete(key);
-      void this._updateLoD();
+      this._requestLoD();
     } catch (err) {
       const now = performance.now();
       const recent = failure && now - failure.at < PAGE_FAILURE_RESET_MS;
@@ -903,7 +943,7 @@ export class CopcDataSource {
   }
   set sseThreshold(value: number) {
     this._options.sseThreshold = value;
-    void this._updateLoD();
+    this._requestLoD();
   }
 
   /** Deepest octree level present in the loaded hierarchy so far — grows as
@@ -995,6 +1035,7 @@ export class CopcDataSource {
     this._destroyed = true;
     this._removeUpdateListener();
     this._removeMoveEndListener();
+    this._removeFromScheduler();
     this._rangeFetcher.destroy();
     if (this._ownsPool) this._workerPool.destroy();
     this._nodeCache.destroy();

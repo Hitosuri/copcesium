@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { Viewer } from 'cesium';
 import type { Hierarchy } from 'copc';
 import type { NodeRenderData } from './types';
+import type { LodScheduler } from './lod/LodScheduler';
 
 const create = vi.fn();
 const loadHierarchyPage = vi.fn();
@@ -459,6 +460,34 @@ describe('CopcDataSource update loop', () => {
     // key (e.g. via onPageNeeded firing again) must not re-fetch it.
     triggerUpdate();
     expect(loadHierarchyPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the pass after a sub-page load to the shared scheduler throttle instead of forcing one', async () => {
+    create.mockResolvedValueOnce({
+      info: { cube: [0, 0, 0, 10, 10, 10], rootHierarchyPage: { pageOffset: 0, pageLength: 10 } },
+      header: { min: [0, 0, 0], max: [10, 10, 10] },
+      wkt: undefined,
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '0-0-0-0': { pointCount: 1, pointDataOffset: 0, pointDataLength: 1 } },
+      pages: { '1-1-1-1': { pageOffset: 100, pageLength: 20 } },
+    });
+    loadHierarchyPage.mockResolvedValueOnce({
+      nodes: { '1-1-1-1': { pointCount: 1, pointDataOffset: 5, pointDataLength: 1 } },
+      pages: {},
+    });
+    const scheduler = { add: vi.fn(() => () => {}), update: vi.fn() };
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer, {
+      scheduler: scheduler as unknown as LodScheduler,
+    });
+    requestRender.mockClear();
+
+    ds.tree.loadSubpage!('1-1-1-1');
+    await vi.waitFor(() => expect(ds.nodeCount).toBe(2));
+
+    expect(scheduler.update).not.toHaveBeenCalled();
+    expect(requestRender).toHaveBeenCalled();
   });
 
   it('merges a large (~150k-key) hierarchy sub-page without a maxDepth stack overflow (#126)', async () => {

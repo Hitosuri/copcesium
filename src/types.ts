@@ -1,5 +1,6 @@
 import type * as Cesium from 'cesium';
 import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
+import type { LodScheduler } from './lod/LodScheduler';
 
 /**
  * How a point's colour is chosen.
@@ -129,6 +130,7 @@ export interface CopcDataSourceOptions {
    * instead of plain points.
    */
   hqSplats?: boolean;
+  scheduler?: LodScheduler;
 }
 
 /** Result of auto-detecting a CRS from a WKT VLR */

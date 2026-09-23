@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as Cesium from 'cesium';
 import type { Hierarchy } from 'copc';
-import { selectNodes } from './selectNodes';
+import { selectAcross, selectNodes, type LodTree } from './selectNodes';
+import { getChildKeys } from '../copc/node';
 import { getNodeBoundingSphere, type ProjectToCartesian } from './boundingVolume';
 
 // Identity projection that passes coordinates straight through to Cartesian3 (verifies pure math, no CRS involved)
@@ -362,5 +363,105 @@ describe('selectNodes', () => {
     });
 
     expect(selected).toHaveLength(9);
+  });
+});
+
+function copcTree(
+  nodes: Hierarchy.Node.Map,
+  center: { x: number; y: number; z: number },
+): LodTree<string> {
+  return {
+    root: '0-0-0-0',
+    points: (key) => nodes[key]?.pointCount ?? 0,
+    sphere: makeGetSphere(center, rootHalfSize),
+    children: (key) => getChildKeys(key).filter((child) => nodes[child]),
+  };
+}
+
+describe('selectAcross', () => {
+  const camera = makeCamera(
+    new Cesium.Cartesian3(0, 0, 30),
+    lookingAtOrigin.direction,
+    lookingAtOrigin.up,
+  );
+
+  it('prunes a child whose own SSE is below the threshold even when its parent expands', () => {
+    // root SSE ~500; near children (z=+5) ~289, far children (z=-5) ~210.
+    const [selected] = selectAcross([copcTree(makeOneLevelOctree(), rootCenter)], {
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 250,
+      maxVisibleNodes: 100,
+    });
+
+    expect(selected[0]).toBe('0-0-0-0');
+    expect(selected).toHaveLength(5);
+    expect((selected as string[]).slice(1).every((key) => key.endsWith('-1'))).toBe(true);
+  });
+
+  it('spends a shared budget on the nearer tree first', () => {
+    const near = copcTree(makeOneLevelOctree(), rootCenter);
+    const far = copcTree(makeOneLevelOctree(), { x: 0, y: 0, z: -200 });
+
+    const [a, b] = selectAcross([near, far], {
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 10,
+    });
+
+    expect(a).toHaveLength(9);
+    expect(b).toEqual(['0-0-0-0']);
+  });
+
+  it('returns an empty selection for a tree outside the frustum without touching the others', () => {
+    const inView = copcTree(makeOneLevelOctree(), rootCenter);
+    const behind = copcTree(makeOneLevelOctree(), { x: 0, y: 0, z: 1000 });
+
+    const [a, b] = selectAcross([inView, behind], {
+      camera,
+      viewportHeight: 1000,
+      sseThreshold: 16,
+      maxVisibleNodes: 100,
+    });
+
+    expect(a).toHaveLength(9);
+    expect(b).toEqual([]);
+  });
+
+  it('refines the child around the camera when the camera is inside the tree', () => {
+    const inside = makeCamera(
+      new Cesium.Cartesian3(1, 1, 1),
+      lookingAtOrigin.direction,
+      lookingAtOrigin.up,
+    );
+
+    const [selected] = selectAcross([copcTree(makeOneLevelOctree(), rootCenter)], {
+      camera: inside,
+      viewportHeight: 1000,
+      sseThreshold: 1e9,
+      maxVisibleNodes: 100,
+    });
+
+    expect(selected).toContain('0-0-0-0');
+    expect(selected).toContain('1-1-1-1');
+    expect(selected).not.toContain('1-0-0-0');
+  });
+
+  it('loads a sub-page only when its entry point would be refined', () => {
+    const loaded: string[] = [];
+    const tree: LodTree<string> = {
+      ...copcTree(
+        { '0-0-0-0': { pointCount: 100, pointDataOffset: 0, pointDataLength: 1 } },
+        rootCenter,
+      ),
+      subpages: () => ['1-1-1-1', '1-0-0-0'],
+      loadSubpage: (key) => loaded.push(key),
+    };
+
+    // 1-1-1-1 (z=+5) ~289 >= 250, 1-0-0-0 (z=-5) ~210 < 250.
+    selectAcross([tree], { camera, viewportHeight: 1000, sseThreshold: 250, maxVisibleNodes: 100 });
+
+    expect(loaded).toEqual(['1-1-1-1']);
   });
 });

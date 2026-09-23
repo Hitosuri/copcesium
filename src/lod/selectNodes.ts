@@ -123,11 +123,11 @@ export interface SelectNodesOptions {
  * through the same volume, and the cloud the user sees is the union of the
  * root down through the current cut. Selecting only the frontier would
  * silently drop everything held above it (19% of `autzen-classified`, 55% of
- * `redrocks.small`). A node is expanded further when its projected
- * screen-space error exceeds `sseThreshold`; children add detail on top of it
+ * `redrocks.small`). A child is refined when its own projected screen-space
+ * error reaches `sseThreshold` (Potree's rule, see `selectAcross`); children add detail on top of it
  * rather than replacing it.
  *
- * A node with zero points is never selected — it holds nothing to draw — but
+ * A node with zero points is never selected - it holds nothing to draw - but
  * is still expanded regardless of SSE so its populated children are reached.
  * Nodes outside the view frustum are dropped along with their whole subtree.
  *
@@ -138,57 +138,82 @@ export interface SelectNodesOptions {
  * ancestors it sits on top of.
  */
 export function selectNodes(options: SelectNodesOptions): string[] {
-  const {
-    nodes,
-    pages = {},
-    onPageNeeded,
-    getSphere,
-    camera,
-    viewportHeight,
-    sseThreshold,
-    maxVisibleNodes,
-    maxPoints = Infinity,
-  } = options;
+  const { nodes, pages = {}, onPageNeeded, getSphere, ...rest } = options;
+  const tree: LodTree<string> = {
+    root: '0-0-0-0',
+    points: (key) => nodes[key]?.pointCount ?? 0,
+    sphere: getSphere,
+    children: (key) => getChildKeys(key).filter((child) => nodes[child]),
+    subpages: (key) => getChildKeys(key).filter((child) => !nodes[child] && pages[child]),
+    loadSubpage: (key) => onPageNeeded?.(key),
+  };
+  return selectAcross([tree], rest)[0] as string[];
+}
 
+export interface LodTree<N = unknown> {
+  readonly root: N;
+  points(node: N): number;
+  sphere(node: N): Cesium.BoundingSphere;
+  children(node: N): N[];
+  /** Children whose subtree lives in a hierarchy page not loaded yet (COPC). */
+  subpages?(node: N): N[];
+  loadSubpage?(node: N): void;
+}
+
+export interface SelectAcrossOptions {
+  camera: Cesium.Camera;
+  viewportHeight: number;
+  sseThreshold: number;
+  maxVisibleNodes: number;
+  maxPoints?: number;
+}
+
+/**
+ * One priority queue over every tree's nodes, so several clouds share one budget the way
+ * Potree's `updatePointClouds` does. Potree's rule: a child is refined only when its own
+ * projected size reaches the threshold; a child holding the camera always is.
+ */
+export function selectAcross(trees: readonly LodTree[], options: SelectAcrossOptions): unknown[][] {
+  const { camera, viewportHeight, sseThreshold, maxVisibleNodes, maxPoints = Infinity } = options;
   const cullingVolume = getCullingVolume(camera);
   const fovy = getFovy(camera.frustum);
-  const selected: string[] = [];
+  const selected = trees.map((): unknown[] => []);
+  let count = 0;
   let pointsUsed = 0;
 
-  // `positionWC`, not `position` — the latter is relative to `camera.transform`
+  // `positionWC`, not `position` - the latter is relative to `camera.transform`
   // and goes local the moment anything calls `camera.lookAt()`, which would
   // measure every node's screen-space error against the wrong viewpoint.
-  const sseOf = (key: string): number =>
-    computeScreenSpaceError(getSphere(key), camera.positionWC, viewportHeight, fovy);
+  const sseOf = (sphere: Cesium.BoundingSphere): number =>
+    Cesium.Cartesian3.distance(sphere.center, camera.positionWC) < sphere.radius
+      ? Infinity
+      : computeScreenSpaceError(sphere, camera.positionWC, viewportHeight, fovy);
 
-  const heap = new MaxHeap<{ key: string; sse: number }>((entry) => entry.sse);
-  // The root's priority never matters — it's the only entry until popped.
-  heap.push({ key: '0-0-0-0', sse: Infinity });
+  const heap = new MaxHeap<{ tree: number; node: unknown; sse: number }>((entry) => entry.sse);
+  trees.forEach((tree, i) => heap.push({ tree: i, node: tree.root, sse: Infinity }));
 
-  while (heap.size > 0 && selected.length < maxVisibleNodes && pointsUsed < maxPoints) {
-    const { key } = heap.pop()!;
-    const nodeInfo = nodes[key];
-    if (!nodeInfo) continue;
+  while (heap.size > 0 && count < maxVisibleNodes && pointsUsed < maxPoints) {
+    const { tree: i, node } = heap.pop()!;
+    const tree = trees[i];
+    if (!isInFrustum(tree.sphere(node), cullingVolume)) continue;
 
-    const sphere = getSphere(key);
-    if (!isInFrustum(sphere, cullingVolume)) continue;
-
-    if (nodeInfo.pointCount > 0) {
-      selected.push(key);
-      pointsUsed += nodeInfo.pointCount;
+    const points = tree.points(node);
+    if (points > 0) {
+      selected[i].push(node);
+      count++;
+      pointsUsed += points;
     }
 
-    // An empty node is descended through regardless of SSE — it contributes
+    // An empty node is descended through regardless of SSE - it contributes
     // nothing itself, so its populated children are the only way to fill the
     // volume it covers.
-    if (nodeInfo.pointCount > 0 && sseOf(key) <= sseThreshold) continue;
-
-    for (const childKey of getChildKeys(key)) {
-      if (nodes[childKey]) {
-        heap.push({ key: childKey, sse: sseOf(childKey) });
-      } else if (pages[childKey]) {
-        onPageNeeded?.(childKey);
-      }
+    const wanted = (sse: number) => points === 0 || sse >= sseThreshold;
+    for (const child of tree.children(node)) {
+      const sse = sseOf(tree.sphere(child));
+      if (wanted(sse)) heap.push({ tree: i, node: child, sse });
+    }
+    for (const page of tree.subpages?.(node) ?? []) {
+      if (wanted(sseOf(tree.sphere(page)))) tree.loadSubpage?.(page);
     }
   }
 

@@ -15,3 +15,7 @@ export {
   buildColorFilter,
 } from './renderer/shaders';
 export { WorkerPool } from './worker/WorkerPool';
+export { LodScheduler } from './lod/LodScheduler';
+export type { LodClient, LodSchedulerOptions } from './lod/LodScheduler';
+export { selectAcross } from './lod/selectNodes';
+export type { LodTree } from './lod/selectNodes';
