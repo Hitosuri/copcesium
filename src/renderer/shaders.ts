@@ -5,7 +5,7 @@ import pointFrag from './glsl/point.frag?raw';
 import compositeFrag from './glsl/composite.frag?raw';
 import depthDilateFrag from './glsl/depthDilate.frag?raw';
 import { VISIBLE_NODES_MAX_WALK } from './visibleNodes';
-import type { ColorFilter } from '../types';
+import type { ClipPolygon, ColorFilter } from '../types';
 import type { PointStyle } from './PointCloudPrimitive';
 
 /** Colour mode as the shader sees it. Kept in sync with `ColorMode` in types.ts. */
@@ -38,6 +38,37 @@ export function buildColorFilter(filter: ColorFilter | undefined): PointStyle['c
     tolerance: filter.tolerance,
     mode: COLOR_FILTER_MODE[filter.mode],
     paint: Cesium.Cartesian3.fromArray(filter.paint ?? [0, 0, 0]),
+  };
+}
+
+/** Clip mode as the shader sees it. Kept in sync with `ClipPolygon['mode']` in types.ts. */
+export const CLIP_MODE = {
+  off: 0,
+  highlight: 1,
+  inside: 2,
+  outside: 3,
+} as const;
+
+export const CLIP_MAX_POINTS = 64;
+
+const DEFAULT_CLIP_COLOR: [number, number, number] = [1, 1, 0];
+
+export function buildClip(clip: ClipPolygon | undefined): PointStyle['clip'] {
+  if (!clip) return undefined;
+  const { points } = clip;
+  if (points.length < 3 || points.length > CLIP_MAX_POINTS) {
+    throw new RangeError(`clip expects 3-${CLIP_MAX_POINTS} polygon points, got ${points.length}`);
+  }
+  return {
+    viewProjection: Cesium.Matrix4.clone(clip.viewProjection),
+    points: Array.from({ length: CLIP_MAX_POINTS }, (_, i) =>
+      i < points.length
+        ? new Cesium.Cartesian2(points[i][0], points[i][1])
+        : new Cesium.Cartesian2(),
+    ),
+    count: points.length,
+    mode: CLIP_MODE[clip.mode],
+    color: Cesium.Cartesian3.fromArray(clip.color ?? DEFAULT_CLIP_COLOR),
   };
 }
 
@@ -89,6 +120,11 @@ const vertexPrelude = `
 #define COLOR_FILTER_MODE_OFF ${COLOR_FILTER_MODE.off}
 #define COLOR_FILTER_MODE_HIDE ${COLOR_FILTER_MODE.hide}
 #define VISIBLE_NODES_MAX_WALK ${VISIBLE_NODES_MAX_WALK}
+#define CLIP_MODE_OFF ${CLIP_MODE.off}
+#define CLIP_MODE_HIGHLIGHT ${CLIP_MODE.highlight}
+#define CLIP_MODE_INSIDE ${CLIP_MODE.inside}
+#define CLIP_MODE_OUTSIDE ${CLIP_MODE.outside}
+#define CLIP_MAX_POINTS ${CLIP_MAX_POINTS}
 
 vec3 classificationColor(int c) {
 ${classificationBranches}

@@ -10,6 +10,7 @@ import * as Cesium from 'cesium';
 import proj4 from 'proj4';
 import { Copc, type Hierarchy } from 'copc';
 import type {
+  ClipPolygon,
   ColorFilter,
   ColorMode,
   CopcDataSourceOptions,
@@ -37,7 +38,13 @@ import { createNodePrimitive } from './loader/loadNode';
 import { HqSplatRenderer } from './renderer/HqSplatRenderer';
 import { encodeVisibleNodes, VisibleNodesTexture } from './renderer/visibleNodes';
 import { offsetShift, type PointStyle } from './renderer/PointCloudPrimitive';
-import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask, buildColorFilter } from './renderer/shaders';
+import {
+  COLOR_MODE,
+  POINT_SIZE_MODE,
+  buildClassMask,
+  buildClip,
+  buildColorFilter,
+} from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
 import { NodeCache } from './cache/NodeCache';
@@ -180,6 +187,7 @@ export class CopcDataSource {
   private readonly _options: ResolvedOptions;
   private readonly _project: ProjectToCartesian;
   private readonly _style: PointStyle;
+  private _clip: ClipPolygon | undefined;
   /** True while `intensityRange` is unpinned and grows with each node loaded. */
   private _autoIntensityRange: boolean;
   private readonly _nodeCache: NodeCache;
@@ -826,6 +834,16 @@ export class CopcDataSource {
   set colorFilter(value: ColorFilter | undefined) {
     this._options.colorFilter = value;
     this._style.colorFilter = buildColorFilter(value);
+    this._viewer.scene.requestRender();
+  }
+
+  /** Polygon clip volume, or `undefined` to draw every point. */
+  get clip(): ClipPolygon | undefined {
+    return this._clip;
+  }
+  set clip(value: ClipPolygon | undefined) {
+    this._style.clip = buildClip(value);
+    this._clip = value;
     this._viewer.scene.requestRender();
   }
 

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { COLOR_MODE, POINT_SIZE_MODE, buildClassMask, vertexShaderSource } from './shaders';
+import * as Cesium from 'cesium';
+import {
+  CLIP_MAX_POINTS,
+  CLIP_MODE,
+  COLOR_MODE,
+  POINT_SIZE_MODE,
+  buildClassMask,
+  buildClip,
+  vertexShaderSource,
+} from './shaders';
 import { CLASSIFICATION_COLORS, DEFAULT_CLASS_COLOR } from '../style/classificationColors';
 
 /** Mirrors `classAllowed()` in the vertex shader, so the two encodings stay tied together. */
@@ -53,6 +62,46 @@ describe('buildClassMask', () => {
     expect(() => buildClassMask([256])).toThrow(RangeError);
     expect(() => buildClassMask([-1])).toThrow(RangeError);
     expect(() => buildClassMask([2.5])).toThrow(RangeError);
+  });
+});
+
+describe('buildClip', () => {
+  const viewProjection = Cesium.Matrix4.IDENTITY;
+
+  it('returns undefined when no clip is given', () => {
+    expect(buildClip(undefined)).toBeUndefined();
+  });
+
+  it('pads the polygon to the shader array length and keeps the real count', () => {
+    const clip = buildClip({
+      viewProjection,
+      points: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+      mode: 'outside',
+    })!;
+
+    expect(clip.points).toHaveLength(CLIP_MAX_POINTS);
+    expect(clip.count).toBe(3);
+    expect(clip.points[1]).toEqual(new Cesium.Cartesian2(1, 0));
+    expect(clip.mode).toBe(CLIP_MODE.outside);
+  });
+
+  it('rejects a polygon the shader array cannot hold, or one with no area', () => {
+    const tooMany = Array.from({ length: CLIP_MAX_POINTS + 1 }, (_, i) => [i, i] as [number, number]);
+    expect(() => buildClip({ viewProjection, points: tooMany, mode: 'inside' })).toThrow(RangeError);
+    expect(() =>
+      buildClip({
+        viewProjection,
+        points: [
+          [0, 0],
+          [1, 1],
+        ],
+        mode: 'inside',
+      }),
+    ).toThrow(RangeError);
   });
 });
 

@@ -25,6 +25,30 @@ uniform int u_filterMode;
 uniform vec3 u_filterColor;
 uniform float u_filterTolerance;  // 0..1, fraction of FILTER_MAX_DISTANCE
 uniform vec3 u_filterPaint;
+uniform int u_clipMode;
+uniform mat4 u_clipMatrix;  // draw-time viewProjection x this node's model matrix
+uniform vec2 u_clipPoints[CLIP_MAX_POINTS];  // NDC of that camera
+uniform int u_clipCount;
+uniform vec3 u_clipColor;
+
+#define CLIP_HIGHLIGHT_STRENGTH 0.5
+
+// Crossing-number test in the draw-time camera's NDC; a point behind that camera is outside.
+bool insideClip() {
+  vec4 p = u_clipMatrix * vec4(position, 1.0);
+  if (p.w <= 0.0) return false;
+  vec2 q = p.xy / p.w;
+  bool inside = false;
+  for (int i = 0, j = u_clipCount - 1; i < CLIP_MAX_POINTS; j = i++) {
+    if (i >= u_clipCount) break;
+    vec2 a = u_clipPoints[i];
+    vec2 b = u_clipPoints[j];
+    if ((a.y > q.y) != (b.y > q.y) && q.x < (b.x - a.x) * (q.y - a.y) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
 // Lightness weight in the filter distance: below 1 a shaded and a lit point of
 // the same hue read as close, so a picked colour catches the whole surface.
@@ -103,7 +127,11 @@ void main() {
   bool filtered = u_filterMode != COLOR_FILTER_MODE_OFF &&
     filterDistance(color.rgb, u_filterColor) > u_filterTolerance * FILTER_MAX_DISTANCE;
 
-  if (!classAllowed(c) || (filtered && u_filterMode == COLOR_FILTER_MODE_HIDE)) {
+  bool clipped = u_clipMode != CLIP_MODE_OFF && insideClip();
+  bool clipHidden = u_clipMode == CLIP_MODE_INSIDE ? clipped
+    : u_clipMode == CLIP_MODE_OUTSIDE && !clipped;
+
+  if (!classAllowed(c) || (filtered && u_filterMode == COLOR_FILTER_MODE_HIDE) || clipHidden) {
     // Outside clip space, so the point is culled before it ever rasterizes.
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = 0.0;
@@ -131,6 +159,7 @@ void main() {
   }
 
   if (filtered) rgb = u_filterPaint;
+  if (clipped && u_clipMode == CLIP_MODE_HIGHLIGHT) rgb = mix(rgb, u_clipColor, CLIP_HIGHLIGHT_STRENGTH);
   v_color = vec4(rgb, color.a * u_opacity);
   // position is a node-relative offset (model coordinates); the node origin
   // rides in the model matrix. Reconstruct the eye-relative position the way

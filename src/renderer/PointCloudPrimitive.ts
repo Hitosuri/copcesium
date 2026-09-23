@@ -8,7 +8,7 @@
  * place.
  */
 import * as Cesium from 'cesium';
-import { vertexShaderSource, fragmentShaderSource } from './shaders';
+import { CLIP_MAX_POINTS, vertexShaderSource, fragmentShaderSource } from './shaders';
 import { SPLAT_ATTRIBUTE_LOCATIONS, type HqSplatRenderer } from './HqSplatRenderer';
 import type { NodeRenderData } from '../types';
 import type { VisibleNodesTexture } from './visibleNodes';
@@ -33,6 +33,14 @@ export interface PointStyle {
   opacity: number;
   /** As `buildColorFilter` packs it; `undefined` draws every colour. */
   colorFilter?: { color: Cesium.Cartesian3; tolerance: number; mode: number; paint: Cesium.Cartesian3 };
+  /** As `buildClip` packs it; `undefined` draws every point. */
+  clip?: {
+    viewProjection: Cesium.Matrix4;
+    points: Cesium.Cartesian2[];
+    count: number;
+    mode: number;
+    color: Cesium.Cartesian3;
+  };
   /**
    * Meters to shift every point along its node's local "up" (the ECEF
    * direction from Earth's center through the node origin), for correcting a
@@ -92,6 +100,8 @@ interface CesiumInternal {
 }
 const CesiumAny = Cesium as unknown as CesiumInternal;
 
+const NO_CLIP_POINTS = Array.from({ length: CLIP_MAX_POINTS }, () => new Cesium.Cartesian2());
+
 // The subset of a constructed DrawCommand's own fields (as opposed to its
 // constructor options) this file mutates in place after construction.
 interface DrawCommandLike {
@@ -142,6 +152,8 @@ export class PointCloudPrimitive {
   depth = 0;
   private readonly _splats: HqSplatRenderer | null;
   private _splatCommands: { depth: DrawCommandLike; attribute: DrawCommandLike } | null;
+  private _model = Cesium.Matrix4.IDENTITY;
+  private readonly _clipMatrix = new Cesium.Matrix4();
 
   constructor(
     renderData: NodeRenderData,
@@ -238,7 +250,8 @@ export class PointCloudPrimitive {
   private _modelMatrix(): Cesium.Matrix4 {
     const origin = new Cesium.Cartesian3(this._origin[0], this._origin[1], this._origin[2]);
     const shift = offsetShift(origin, this._style);
-    return Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.add(origin, shift, origin));
+    this._model = Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.add(origin, shift, origin));
+    return this._model;
   }
 
   /**
@@ -379,6 +392,16 @@ export class PointCloudPrimitive {
       u_filterColor: () => style.colorFilter?.color ?? Cesium.Cartesian3.ZERO,
       u_filterTolerance: () => style.colorFilter?.tolerance ?? 1,
       u_filterPaint: () => style.colorFilter?.paint ?? Cesium.Cartesian3.ZERO,
+      u_clipMode: () => style.clip?.mode ?? 0,
+      // Multiplied here in double precision: czm_model in the shader is float32, which at ECEF
+      // magnitudes rounds the node origin by up to half a metre.
+      u_clipMatrix: () =>
+        style.clip
+          ? Cesium.Matrix4.multiply(style.clip.viewProjection, this._model, this._clipMatrix)
+          : Cesium.Matrix4.IDENTITY,
+      u_clipPoints: () => style.clip?.points ?? NO_CLIP_POINTS,
+      u_clipCount: () => style.clip?.count ?? 0,
+      u_clipColor: () => style.clip?.color ?? Cesium.Cartesian3.ZERO,
     };
   }
 

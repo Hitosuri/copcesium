@@ -1,3 +1,4 @@
+import type * as Cesium from 'cesium';
 import type { PointCloudPrimitive } from './renderer/PointCloudPrimitive';
 
 /**
@@ -24,6 +25,21 @@ export interface ColorFilter {
   mode: 'paint' | 'hide';
   /** RGB painted over non-matching points in `'paint'` mode, each 0..1. Default black. */
   paint?: [number, number, number];
+}
+
+/**
+ * Potree's polygon clip volume: a screen-space polygon extruded along the view rays of the camera
+ * it was drawn from, so it cuts through the whole cloud from that viewpoint.
+ */
+export interface ClipPolygon {
+  /** `projectionMatrix × viewMatrix` of the camera at draw time. */
+  viewProjection: Cesium.Matrix4;
+  /** Polygon vertices in that camera's NDC (-1..1, y up), at least 3 and at most `CLIP_MAX_POINTS`. */
+  points: [number, number][];
+  /** `'highlight'` tints the points inside toward `color`, `'inside'` hides them, `'outside'` hides the rest. */
+  mode: 'highlight' | 'inside' | 'outside';
+  /** RGB for `'highlight'`, each 0..1. Default yellow. */
+  color?: [number, number, number];
 }
 
 /** Public options for CopcDataSource */
