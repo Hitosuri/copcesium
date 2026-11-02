@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-import type { Viewer } from 'cesium';
+import { Cartesian3, OrientedBoundingBox, type Viewer } from 'cesium';
 import type { Hierarchy } from 'copc';
 import type { NodeRenderData } from './types';
 import type { LodScheduler } from './lod/LodScheduler';
@@ -1233,6 +1233,40 @@ describe('CopcDataSource runtime API', () => {
 
     ds.colorFilter = undefined;
     expect(ds.colorFilter).toBeUndefined();
+  });
+
+  it('applies tint and clears it on undefined', async () => {
+    mockCopc(undefined);
+    const { viewer, requestRender } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+    requestRender.mockClear();
+
+    expect(ds.tint).toBeUndefined();
+    ds.tint = { color: [1, 1, 0], amount: 0.3 };
+    expect(ds.tint).toEqual({ color: [1, 1, 0], amount: 0.3 });
+    expect(requestRender).toHaveBeenCalled();
+
+    ds.tint = undefined;
+    expect(ds.tint).toBeUndefined();
+  });
+
+  it('boundingBox wraps the header bounds and follows heightOffset', async () => {
+    mockCopc(undefined);
+    const { viewer } = makeFakeViewer();
+    const ds = await CopcDataSource.load('https://example.com/sample.copc.laz', viewer);
+    const { _project: project } = ds as unknown as { _project: (x: number, y: number, z: number) => Cartesian3 };
+
+    const box = ds.boundingBox;
+    for (const x of [0, 10]) {
+      for (const y of [0, 10]) {
+        for (const z of [0, 10]) {
+          expect(OrientedBoundingBox.distanceSquaredTo(box, project(x, y, z))).toBeLessThan(1);
+        }
+      }
+    }
+
+    ds.heightOffset = 10;
+    expect(Cartesian3.distance(ds.boundingBox.center, box.center)).toBeCloseTo(10, 3);
   });
 
   it('grows the intensity range as nodes load, and stops once the caller pins it', async () => {

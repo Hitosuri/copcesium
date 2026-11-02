@@ -19,6 +19,7 @@ import type {
   NodeRenderData,
   PointSizeMode,
   StageTiming,
+  Tint,
 } from './types';
 import { loadCopcHierarchy } from './copc/hierarchy';
 import {
@@ -52,6 +53,7 @@ import {
   buildClassMask,
   buildClip,
   buildColorFilter,
+  buildTint,
 } from './renderer/shaders';
 import { WorkerPool } from './worker/WorkerPool';
 import type { NodeConversionPayload } from './worker/messages';
@@ -197,6 +199,7 @@ export class CopcDataSource implements LodClient<string> {
   private readonly _project: ProjectToCartesian;
   private readonly _style: PointStyle;
   private _clip: ClipPolygon | undefined;
+  private _tint: Tint | undefined;
   /** True while `intensityRange` is unpinned and grows with each node loaded. */
   private _autoIntensityRange: boolean;
   private readonly _nodeCache: NodeCache;
@@ -887,6 +890,15 @@ export class CopcDataSource implements LodClient<string> {
     this._viewer.scene.requestRender();
   }
 
+  get tint(): Tint | undefined {
+    return this._tint;
+  }
+  set tint(value: Tint | undefined) {
+    this._style.tint = buildTint(value);
+    this._tint = value;
+    this._viewer.scene.requestRender();
+  }
+
   /**
    * Raw LAS intensity values at the two ends of the `'intensity'` ramp.
    * Assigning `undefined` hands the range back to auto, which rebuilds it from
@@ -1028,6 +1040,17 @@ export class CopcDataSource implements LodClient<string> {
 
   get boundingSphere(): Cesium.BoundingSphere {
     return this._getSphere('0-0-0-0');
+  }
+
+  /** The header's point bounds, unlike `boundingSphere` which wraps the octree's root cube. */
+  get boundingBox(): Cesium.OrientedBoundingBox {
+    const { min, max } = this._copc.header;
+    const corners = Array.from({ length: 8 }, (_, i) =>
+      this._project(i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]),
+    );
+    const box = Cesium.OrientedBoundingBox.fromPoints(corners);
+    Cesium.Cartesian3.add(box.center, offsetShift(box.center, this._style), box.center);
+    return box;
   }
 
   destroy(): void {

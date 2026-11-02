@@ -30,6 +30,7 @@ uniform mat4 u_clipMatrix;  // draw-time viewProjection x this node's model matr
 uniform vec2 u_clipPoints[CLIP_MAX_POINTS];  // NDC of that camera
 uniform int u_clipCount;
 uniform vec3 u_clipColor;
+uniform vec4 u_tint;
 
 #define CLIP_HIGHLIGHT_STRENGTH 0.5
 
@@ -160,6 +161,7 @@ void main() {
 
   if (filtered) rgb = u_filterPaint;
   if (clipped && u_clipMode == CLIP_MODE_HIGHLIGHT) rgb = mix(rgb, u_clipColor, CLIP_HIGHLIGHT_STRENGTH);
+  rgb = mix(rgb, u_tint.rgb, u_tint.a);
   v_color = vec4(rgb, color.a * u_opacity);
   // position is a node-relative offset (model coordinates); the node origin
   // rides in the model matrix. Reconstruct the eye-relative position the way

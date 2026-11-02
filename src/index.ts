@@ -1,6 +1,13 @@
 export { CopcDataSource } from './CopcDataSource';
 export type { ColorMode, CopcDataSourceOptions, PointSizeMode } from './CopcDataSource';
-export type { ClipPolygon, ColorFilter, CopcStats, NodeRenderData, StageTiming } from './types';
+export type {
+  ClipPolygon,
+  ColorFilter,
+  CopcStats,
+  NodeRenderData,
+  StageTiming,
+  Tint,
+} from './types';
 export { HqSplatRenderer } from './renderer/HqSplatRenderer';
 export { encodeVisibleNodes, VisibleNodesTexture } from './renderer/visibleNodes';
 export type { VisibleNode, VisibleNodesData } from './renderer/visibleNodes';
@@ -13,6 +20,7 @@ export {
   POINT_SIZE_MODE,
   buildClip,
   buildColorFilter,
+  buildTint,
 } from './renderer/shaders';
 export { WorkerPool } from './worker/WorkerPool';
 export { LodScheduler } from './lod/LodScheduler';

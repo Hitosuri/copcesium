@@ -5,7 +5,7 @@ import pointFrag from './glsl/point.frag?raw';
 import compositeFrag from './glsl/composite.frag?raw';
 import depthDilateFrag from './glsl/depthDilate.frag?raw';
 import { VISIBLE_NODES_MAX_WALK } from './visibleNodes';
-import type { ClipPolygon, ColorFilter } from '../types';
+import type { ClipPolygon, ColorFilter, Tint } from '../types';
 import type { PointStyle } from './PointCloudPrimitive';
 
 /** Colour mode as the shader sees it. Kept in sync with `ColorMode` in types.ts. */
@@ -30,6 +30,12 @@ export const COLOR_FILTER_MODE = {
   paint: 1,
   hide: 2,
 } as const;
+
+export function buildTint(tint: Tint | undefined): PointStyle['tint'] {
+  if (!tint) return undefined;
+  const [r, g, b] = tint.color;
+  return new Cesium.Cartesian4(r, g, b, Cesium.Math.clamp(tint.amount, 0, 1));
+}
 
 export function buildColorFilter(filter: ColorFilter | undefined): PointStyle['colorFilter'] {
   if (!filter) return undefined;

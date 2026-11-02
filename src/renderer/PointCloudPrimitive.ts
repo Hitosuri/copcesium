@@ -41,6 +41,7 @@ export interface PointStyle {
     mode: number;
     color: Cesium.Cartesian3;
   };
+  tint?: Cesium.Cartesian4;
   /**
    * Meters to shift every point along its node's local "up" (the ECEF
    * direction from Earth's center through the node origin), for correcting a
@@ -402,6 +403,7 @@ export class PointCloudPrimitive {
       u_clipPoints: () => style.clip?.points ?? NO_CLIP_POINTS,
       u_clipCount: () => style.clip?.count ?? 0,
       u_clipColor: () => style.clip?.color ?? Cesium.Cartesian3.ZERO,
+      u_tint: () => style.tint ?? Cesium.Cartesian4.ZERO,
     };
   }
 

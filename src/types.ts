@@ -43,6 +43,13 @@ export interface ClipPolygon {
   color?: [number, number, number];
 }
 
+export interface Tint {
+  /** RGB, each 0..1. */
+  color: [number, number, number];
+  /** 0..1: 0 leaves the colour as is, 1 replaces it. */
+  amount: number;
+}
+
 /** Public options for CopcDataSource */
 export interface CopcDataSourceOptions {
   proj?: string;
